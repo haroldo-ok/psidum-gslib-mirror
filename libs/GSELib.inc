@@ -16,7 +16,7 @@
 
 .define GSE_GENERAL_RAM                 $D000       ; location of general purpose ram
 .define GSE_METATILE_TABLE              $8000       ; location of metatile table aligned to 2k boundary
-.define GSE_METATILE_TABLE_HIGH_BYTE    $10
+.define GSE_METATILE_TABLE_HIGH_BYTE    $80
 .define GSE_HORIZONTAL_ADDITION         $0F         ; addition value required to push scrolltable pointer to right size of screen 
 .define GSE_NAMETABLE_BASE_ADDRESS      $7800       ; base address of nametable in vram including write bit set (14)   
 
@@ -519,12 +519,15 @@ _px:                        ; == Left / Right Scroll Occur?
                             jp m, _p1_name
                             
 _pr_name:                   ; == Create Adjusted btPointer for _unrollColumnForNTUpdate call
-                            ld de, (GSE_ScrolltablePointer)         ; We need to pass _unrollColumnForNTUpdate a buffertable pointer
-                            ld a, 16
-                            add a, e
-                            jr nc, +
-                            inc d
-+:                          ld e, a
+;                            ld de, (GSE_ScrolltablePointer)         ; We need to pass _unrollColumnForNTUpdate a buffertable pointer
+;                            ld a, 16
+;                            add a, e
+;                            jr nc, +
+;                            inc d
+;+:                          ld e, a
+                            ld iy, (GSE_ScrolltablePointer)
+                            ld de, 16
+                            add iy, de
 
                             ; == Create X offset for _unrollColumnForNTUpdate call
                             ld a, (GSE_X)                    ; get x offset for meta tile. Writing column so need to adjust for this.
@@ -550,7 +553,6 @@ _pr_name:                   ; == Create Adjusted btPointer for _unrollColumnForN
                             ld (GSE_NametableUpdateColumn+ 1), a    
                             
                             
-                            
                             jp _py
 ;                            
 ;                     
@@ -560,14 +562,21 @@ _p1_name:                   ; == NameTable Update Required?
                             
 
                             ; == Create Adjusted btPointer for _unrollColumnForNTUpdate call
-                            ld de, (GSE_ScrolltablePointer)  
+;                            ld de, (GSE_ScrolltablePointer)  
+;                            ld a, (GSE_X) 
+;                            add a, 8
+;                            and %00001000
+;                            jp nz, +
+;                            inc de
+;                            +:
+                            
+                            ld iy, (GSE_ScrolltablePointer)
                             ld a, (GSE_X) 
                             add a, 8
                             and %00001000
                             jp nz, +
-                            inc de
+                            inc iy
                             +:
-                            
                             
                             ; == Create X offset for _unrollColumnForNTUpdate call
                             ;ld a, (GSE_X)              ; get x offset for meta tile. Writing column so need to adjust for this.
@@ -598,47 +607,18 @@ _pd_name:                   ; == NameTable Update Required?
                             ret nc
 
                             ; == Create Adjusted btPointer for _unrollColumnForNTUpdate call
-;                            ld de, (GSE_ScrolltablePointer)                  ; We need to pass _unrollColumnForNTUpdate a buffertable pointer
-;                            ld hl, (GSE_VerticalAddition)
-;                            add hl, de
-;                            ld b, h
-;                            ld c, l
-;                            ex de, hl
-;                            
-;                            
-;                            ld a, (GSE_X) 
-;                            add a, 8
-;                            and %00001000
-;                            jp nz, +
-;                            inc de
-;                            
-;                            +:
+                            ld iy, (GSE_ScrolltablePointer)
+                            ld de, (GSE_VerticalAddition)
+                            add iy, de
                             
-                            ld de, (GSE_ScrolltablePointer)                  ; We need to pass _unrollColumnForNTUpdate a buffertable pointer
-                            ld hl, (GSE_VerticalAddition)
-                            add hl, de
                             ld de, (GSE_WidthInMetatiles)
                             ld a, (GSE_Y)              ; get x offset for meta tile. Writing column so need to adjust for this.
                             sub 8
                             and %00001000
                             jp nz, +
-                            add hl, de
+                            add iy, de
                             +:
-                            ld b, h
-                            ld c, l
-                            ex de, hl
                             
-;                            or a
-;                            ld a, $70
-;                            jp p, +
-;                            ld a, $60
-;+:                          add a, c
-;                            ld c, a                             ; We have buffertable pointer in BC.
-                             
-                            ; == Create Y offset for _unrollColumnForNTUpdate call
-;                            ld a, (GSE_Y)              ; get x offset for meta tile. Writing column so need to adjust for this.
-;                            sub 8
-;                            and %00001000
                             rrca
                             ld ixl, a
                                         
@@ -668,7 +648,8 @@ _pu_name:                   ; == NameTable Update Required?
                             ret nc
                             
                             ; == Get btPointer for _unrollColumnForNTUpdate call
-                            ld bc, (GSE_ScrolltablePointer)                  
+                            ;ld bc, (GSE_ScrolltablePointer)    
+                            ld iy, (GSE_ScrolltablePointer)
                             
                             ; == Create Y offset for _unrollColumnForNTUpdate call
                             ld a, (GSE_Y)              ; get x offset for meta tile. Writing column so need to adjust for this.
@@ -684,66 +665,99 @@ _pu_name:                   ; == NameTable Update Required?
                             ret
 
 
- 
- 
- 
-                            ret
-                            
-                            
-_unrollRowForNTUpdate:      ; == Set Up Registers
-                            ld de, GSE_NATRowBuffer            
-                            ld ixh, 18     
- 
- 
- 
-_unrollMetaTileRow:         ; == Resolve MetaTile Address 
-                            ld h, GSE_METATILE_TABLE_HIGH_BYTE
-                            ld a, (bc)
-                            ld l, a
-                            add hl, hl
-                            add hl, hl
-                            add hl, hl
-                            ld a, l
-                            or ixl
-                            ld l, a
-                            
-                            
-                            ; == Write Row Entries in Meta Tile to Update Buffer (unrolled code for 4 entries)
-                            ld a, (hl)                          
-                            ld (de), a                          ; copy first byte
-                            inc l
-                            inc de
-                            ld a, (hl)                          ; copy second byte
-                            ld (de), a
-                            inc l                               ; adjust pointers for next copy
-                            inc de
-                            
-                            ld a, (hl)                          
-                            ld (de), a                          ; copy first byte
-                            inc l
-                            inc de
-                            ld a, (hl)                          ; copy second byte
-                            ld (de), a                     ; adjust pointers for next copy
-                            
-                            
-                            ; == Have we unrolled 9x MetaTiles? (EXIT POINT!)
-                            dec ixh                             ; Terminates on zero so ixh contains number of entries 
-                            ret z                               ; to unroll +1
-                            
-                            
-                            ; == Adjust Pointers for Next Iteration.
-                            inc de 
-                            
-                            inc bc                              ; shift buffer pointer
 
-                            jp _unrollMetaTileRow     
+
+/*
+ * == Populates Buffer for VBlank Updates
+ * 
+ * - Extracts row of nametable entries from scrolltable
+ * - Stored in Buffer for Vblank routine
+ * - Metatile ids in scrolltable are pre processed to speed the resolving of their address (which is very time consuming)
+ *      * (metatile_id << 3) & 248) + ((metatile_id >> 5) & 7)
+ * 
+ * @in iy: scrolltable pointer pointing to first metatile in update
+ * @in ixl: X offset, needed to identify which row in metatile to extract.
+ */  
+_unrollRowForNTUpdate:      ld de, GSE_NATRowBuffer         
+                            ld c, 17*4   
                             
-                                                   
+_unrollMetaTileRow:         ld l, (iy+0)                        ; == Resolve metatile address, current metatile pointed to by iy
+                            ld a, l                             ; optimized <<3 shift, bits are stored as '43210765' for speed
+                            and %111                          
+                            or GSE_METATILE_TABLE_HIGH_BYTE     ; add high bits of metatile address (table must be on 2k boundary)
+                            ld h, a
+                            ld a, l
+                            and %11111000
+                            or ixl                              ; add X offset (in ixl) to get desired column in meta tile.
+                            ld l, a                             ; hl = pointer to metatile nametable entry we need to write to vdp
+                            
+                            ldi                                 ; == Write 2x nametable entries to buffer.
+                            ldi                                 ; metatiles are 2 entries wide so l+=2 to move to second entry.
+                            ldi
+                            ldi
+                            
+                            xor a                               ; loop
+                            and c
+                            ret z
+                            
+                            inc iy                              ; Update Scrolltable Pointer
+                            
+                            jp _unrollMetaTileRow
+                            
+                            
+                            
+                            
+                            
+/*
+ * == Populates Buffer for VBlank Updates
+ * 
+ * - Extracts column of nametable entries from scrolltable
+ * - Stored in Buffer for Vblank routine
+ * - Metatile ids in scrolltable are pre processed to speed the resolving of their address (which is very time consuming)
+ *      * (metatile_id << 3) & 248) + ((metatile_id >> 5) & 7)
+ * 
+ * @in iy: scrolltable pointer pointing to first metatile in update
+ * @in ixl: X offset, needed to identify which column in metatile to extract.
+ */                   
+_unrollColumnForNTUpdate:   ld de, GSE_NATColumnBuffer         
+                            ld c, 15*4   
+                            
+_unrollMetaTileColumn:      ld l, (iy+0)                        ; == Resolve metatile address, current metatile pointed to by iy
+                            ld a, l                             ; optimized <<3 shift, bits are stored as '43210765' for speed
+                            and %111                            
+                            or GSE_METATILE_TABLE_HIGH_BYTE     ; add high bits of metatile address (table must be on 2k boundary)
+                            ld h, a
+                            ld a, l
+                            and %11111000
+                            or ixl                              ; add X offset (in ixl) to get desired column in meta tile.
+                            ld l, a                             ; hl = pointer to metatile nametable entry we need to write to vdp
+                            
+                            ldi                                 ; == Write 2x nametable entries to buffer.
+                            ldi                                 ; metatiles are 2 entries wide so l+=2 to move to second entry.
+                            inc l                   
+                            inc l
+                            ldi
+                            ldi
+                            
+                            xor a                               ; loop
+                            and c
+                            ret z
+                            
+                            ld hl, (GSE_WidthInMetatiles)       ; Update Scrolltable Pointer
+                            ex de, hl
+                            add iy, de
+                            ex de, hl
+                            
+                            jp _unrollMetaTileColumn                           
+                            
+                            
+                            
+                            
+                                               
                             
 ntRowUpdate:                ld a, (GSE_YUpdateStatus)
                             and a
                             ret z
-                            
                             
                             exx
                             ld hl, (GSE_NametableUpdateRow)                  ; Get vram nametable pointer
@@ -789,9 +803,7 @@ ntRowUpdate:                ld a, (GSE_YUpdateStatus)
                             add a, l
                             ld l, a
                             
-                            ;ld e, (hl)                          ; Indirection to get starting address in buffer
                             inc hl
-                            ;ld d, (hl)
                             inc hl
                             
                             ld a, (hl)                          ; indirection to get jump value (equals required number of vram writes)
@@ -812,58 +824,12 @@ _ntRowUpdateFinalise:       ;xor a
                             ;ld (ntUpdateFlag), a
                             ret
 
+                            
+                            
 
-_unrollColumnForNTUpdate:   ; == Set Up Registers
-                            ld bc, GSE_NATColumnBuffer         
-                            ld ixh, 16    
- 
- 
-_unrollMetaTileColumn:      ; == Resolve MetaTile Address 
-                            ld h, GSE_METATILE_TABLE_HIGH_BYTE
-                            ld a, (de)
-                            ld l, a
-                            add hl, hl
-                            add hl, hl
-                            add hl, hl
-                            ld a, l
-                            or ixl
-                            ld l, a
-                            
-                            ; == Write Column Entries in Meta Tile to Update Buffer (unrolled code for 4 entries)
-                            ld a, (hl)                          
-                            ld (bc), a                          ; copy first byte
-                            inc l
-                            inc bc
-                            ld a, (hl)                          
-                            ld (bc), a                          ; copy second byte
-                            inc bc  
-                            inc l
-                            inc l
-                            inc l    
-                            
-                            ld a, (hl)                          
-                            ld (bc), a                          ; copy first byte
-                            inc l
-                            inc bc
-                            ld a, (hl)                          
-                            ld (bc), a                          ; copy second byte
-                            
-                            
-                            
-                            ; == Have we unrolled 15x MetaTiles? (EXIT POINT!)
-                            dec ixh                             ; Terminates on zero so ixh contains number of entries 
-                            ret z                               ; to unroll +1
-                            
-                            
-                            ; == Adjust Pointers for Next Iteration.
-                            inc bc 
-                                           
-                            ld hl, (GSE_WidthInMetatiles)       ; Update Scrolltable Pointer
-                            add hl, de
-                            ex de, hl
-                            jp _unrollMetaTileColumn
-                            
-                            
+                           
+                           
+                           
                             
 ntColumnUpdate:            ; == Column Update Required?
                             ld a, (GSE_XUpdateStatus)
