@@ -4,7 +4,7 @@
  * GSELib : Generic Scroll Engine by Psidum
  * 
  * General purpose 8 way scrolling engine for use in games or demos. 
- * Uses 16x16 Metatiles.
+ * Uses 16x16 pixel Metatiles.
  * 
  * Thanks to everyone in the Sega Master System dev community.
  * Special thanks to Calindro, Kagesan, Efry, Maxim, Sverx, Bock, vbt and all the rest!
@@ -14,11 +14,6 @@
 
 
 .section "GSELib" free
-
-
-
-
-
 
 .define GSE_GENERAL_RAM                 $D000       ; location of general purpose ram
 .define GSE_METATILE_TABLE              $8000       ; location of metatile table aligned to 2k boundary
@@ -69,9 +64,10 @@
 .ende
 
 
+
+
 /*
  * == Initializes GSElib for rendering of new map
- * 
  * @in hl: Scrolltable Location
  */
 GSE_InitaliseMap:           ; == Copy Scrolltable Header to Ram (its structure is identical to enum)
@@ -129,7 +125,7 @@ GSE_InitaliseMap:           ; == Copy Scrolltable Header to Ram (its structure i
  * - Stores X,Y
  * - Creates Pointers based on X,Y
  * 
- * **NOTES
+ * TODO: 
  * - Only single modulo is needed!
  * - General Clean Up!
  */                                
@@ -228,14 +224,13 @@ GSE_PositionWindow:         ; **** Generate GSE_ScrolltablePointer
                             
                             
                             
+                            
  /* == Updates Nametable contents (based on current internal window possition)
  * 
  * - Active Display Safe
- * 
- * ** NOTES: NEEDS MAJOR WORK
- * - Currently not Active Display Safe (needs to be)
- * - horrible code written just to get it working.
- * - Uses existing row update code however this is not active display safe, needs to change!
+ *
+ * TODO:
+ * - Optimizations are possible.
  */                             
 GSE_RefreshScreen:          ; == Set VDP Nametable Pointer
                             ld hl, (GSE_NametablePointer)
@@ -372,7 +367,6 @@ _RefreshLoop:               ; == Set VDP Pointer at Start of Row
                             
                             
                             
-
 /* == Retreives from Scrolltable, Metatile ID and address
  * 
  * - Stores address in buffer GSE_MetatileLookupBuffer.
@@ -479,10 +473,26 @@ GSE_TileLookup:             ; == Create offset for within Metatile (which nameta
                             
                             
 
-
-
-/*
- * == Write last accessed Scrolltable Metatile entry to VDP.
+; == Update user defined Metatile Entry to VDP.
+; This is used in cases where user knows the x,y, and array index of metatile to update.
+; Useful for animation type stuff.
+; NOTE: this is a more advanced feature that puts the onus on the coder to manage properly.
+ 
+GSE_MetatileUpdateSpecific: ; == Populate Buffered Values with Custom Values.
+                            ld (GSE_MetatileYBuffer), hl
+                            ld (GSE_MetatileXBuffer), de
+                            
+                            ; == Add Array offset to Scrolltable bass address then store results.
+                            ld hl, (GSE_ScrolltableLoc)
+                            add hl, bc
+                            ld (GSE_MetatileLookupBuffer), hl
+                            
+                            ; == Flow to GSE_MetatileUpdate Below 
+                            
+                          
+                          
+                          
+/* == Write last accessed Scrolltable Metatile entry to VDP.
  * 
  * NOTE: This Routine assumes that the scrolltable entry in question is in current display.
  * If you call this on an entry that is not in the current window space it will update
@@ -493,7 +503,8 @@ GSE_TileLookup:             ; == Create offset for within Metatile (which nameta
  * 
  * - GSE_MetatileLookup stores buffer of last entry looked up, this routine uses this to update
  * last looked up entry.
- */
+ */                          
+
 GSE_MetatileUpdate:         ; == Y >> 4
                             ld hl, (GSE_MetatileYBuffer)
                             ld a, l
@@ -566,6 +577,7 @@ GSE_MetatileUpdate:         ; == Y >> 4
                             
                             
                             
+                            
  /* == Routine to be Called During Active Display
  * 
  * - Checked XUpdateRequest + YUpdateRequest Status for updates
@@ -597,7 +609,7 @@ _rightScroll:               ; == Update currentXScroll Value.
                             inc h
 +:                          ld l, a
                             xor b
-                            ld i, a                             ; store low byte different pre / post scroll (for boundary tests)
+                            ld d, a                             ; store low byte different pre / post scroll (for boundary tests)
 +:                          ld (GSE_X), hl      
                                    
 
@@ -620,7 +632,7 @@ _rightNametableCheck:       ; == Check for NameTable Boundary Cross
 
 
 _rightScrolltableCheck:     ; == Check for BufferTable Boundary Cross
-                            ld a, i                                 
+                            ld a, d                                 
                             and %11110000                    
                             jp z, _yScroll
                             
@@ -640,7 +652,7 @@ _leftScroll:                ; == Update currentXScroll Value.
                             dec h
 +:                          ld l, a
                             xor b
-                            ld i, a                             ; store low byte different pre / post scroll (for boundary tests)
+                            ld d, a                             ; store low byte different pre / post scroll (for boundary tests)
 +:                          ld (GSE_X), hl             
                             
 _leftNametableCheck:             ; == Check for NameTable Boundary Cross
@@ -662,7 +674,7 @@ _leftNametableCheck:             ; == Check for NameTable Boundary Cross
                             
                             
 _leftScrolltableCheck:      ; == Check for BufferTable Boundary Cross
-                            ld a, i                                 
+                            ld a, d                                 
                             and %11110000                       
                             jp z, _yScroll
                             
@@ -697,7 +709,7 @@ _downScroll:                ; == Update dummyYScroll Value (wraps around 224 Nam
                             inc h
 +:                          ld l, a
                             xor b
-                            ld i, a                             ; store low byte different pre / post scroll (for boundary tests)
+                            ld d, a                             ; store low byte different pre / post scroll (for boundary tests)
 +:                          ld (GSE_Y), hl             
                             
                             
@@ -709,8 +721,8 @@ _downNametableCheck:        ; == Check for NameTable Boundary Cross
                             ld (iy + GSE_YUpdateStatus - GSE_GENERAL_RAM), 1 ; ????
                                                 
                             ld hl, (GSE_NametablePointer)                  ; Update name table pointer.
-                            ld de, 64                           
-                            add hl, de
+                            ld bc, 64                           
+                            add hl, bc
                             ld a, GSE_NAMETABLE_HIGH_BYTE_END                                      ; TODO shift this to .defines for variable nat positioning
                             cp h
                             jp nz, +
@@ -718,15 +730,15 @@ _downNametableCheck:        ; == Check for NameTable Boundary Cross
 +:                          ld (GSE_NametablePointer), hl
 
 _downScrolltableCheck:      ; == Check for BufferTable Boundary Cross
-                            ld a, i                                 
+                            ld a, d                                 
                             and %11110000                       ; !SMC metatile width bitmask
                             jp z, _processUpdateBuffers
                             
                             ; == BufferTable Boundary Crossed... Process
                             
                             ld hl, (GSE_ScrolltablePointer)
-                            ld de, (GSE_WidthInMetatiles)
-                            add hl, de
+                            ld bc, (GSE_WidthInMetatiles)
+                            add hl, bc
                             ld (GSE_ScrolltablePointer), hl
 
                             jp _processUpdateBuffers
@@ -749,11 +761,11 @@ _upScroll:                  ; == Update dummyYScroll Value (wraps around 224 Nam
                             dec h
 +:                          ld l, a
                             xor b
-                            ld i, a                             ; store low byte different pre / post scroll (for boundary tests)
+                            ld d, a                             ; store low byte different pre / post scroll (for boundary tests)
 +:                          ld (GSE_Y), hl             
                             
 _upNametableCheck:          ; == Check for NameTable Boundary Cross
-                            ld a, i
+                            ld a, d
                             and %11111000
                             jp z, _processUpdateBuffers
 
@@ -761,9 +773,9 @@ _upNametableCheck:          ; == Check for NameTable Boundary Cross
                             ld (iy + GSE_YUpdateStatus - GSE_GENERAL_RAM), 129
                             
                             ld hl, (GSE_NametablePointer)                  ; Update name table pointer.
-                            ld de, 64
+                            ld bc, 64
                             or a
-                            sbc hl, de
+                            sbc hl, bc
                             ld a, GSE_NAMETABLE_HIGH_BYTE_START - 1
                             cp h
                             jp nz, +
@@ -771,19 +783,18 @@ _upNametableCheck:          ; == Check for NameTable Boundary Cross
 +:                          ld (GSE_NametablePointer), hl
 
 _upScrolltableCheck:        ; == Check for BufferTable Boundary Cross
-                            ld a, i                                 
+                            ld a, d                                 
                             and %11110000                       ; !SMC metatile width bitmask
                             jp z, _processUpdateBuffers
                             
                             ; == BufferTable Boundary Crossed... Process
                             
                             ld hl, (GSE_ScrolltablePointer)
-                            ld de, (GSE_WidthInMetatiles)
+                            ld bc, (GSE_WidthInMetatiles)
                             xor a
-                            sbc hl, de
+                            sbc hl, bc
                             ld (GSE_ScrolltablePointer), hl
 
-                            
                             
 _processUpdateBuffers:       
 _updateX:                   ; == Left / Right Scroll Occur?
@@ -916,12 +927,8 @@ _updateBufferUp:            ; == NameTable Update Required?
 
 
 
-
-                          
-                            
-                                               
-/*
- * == Vblank call writes required updates to Nametable in vdp.
+          
+/* == Vblank call writes required updates to Nametable in vdp.
  * 
  * - Not Active Display Safe!
  */                             
@@ -1125,15 +1132,10 @@ _VBlankCleanup:             ; == Reset RAM Variables for next Active Display.
                             
                             ret
                               
-                            
-
-
-                            
 
 
 
-/*
- * == Populates Buffer for VBlank Updates
+/* == Populates Buffer for VBlank Updates
  * 
  * - Extracts row of nametable entries from scrolltable
  * - Stored in Buffer for Vblank routine
@@ -1172,8 +1174,7 @@ _unrollMetaTileRow:         ld l, (iy+0)                        ; == Resolve met
                             
                             
                             
-/*
- * == Populates Buffer for VBlank Updates
+/* == Populates Buffer for VBlank Updates
  * 
  * - Extracts column of nametable entries from scrolltable
  * - Stored in Buffer for Vblank routine
@@ -1217,8 +1218,7 @@ _unrollMetaTileColumn:      ld l, (iy+0)                        ; == Resolve met
 
 
                             
-/*
- * == Unrolled VDP Row Write
+/* == Unrolled VDP Row Write
  * Used to speed write rows of data on VBlank row update.
  */                            
                             .repeat 32
@@ -1228,8 +1228,9 @@ _unrollMetaTileColumn:      ld l, (iy+0)                        ; == Resolve met
 _UnrolledRowWrites:         ret
 
 
-/*
- * == Unrolled VDP Column Write
+
+
+/* == Unrolled VDP Column Write
  * Used to speed write columns of data on VBlank row update.
  */ 
                             .repeat 28
