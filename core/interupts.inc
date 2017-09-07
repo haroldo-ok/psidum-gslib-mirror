@@ -21,7 +21,7 @@
 .org $0038
 .section "MI Interrupt handler" force
 
-MI_InterruptHandler:        jp interuptHandler
+MI_InterruptHandler:        jp InteruptHandler
         
 .ends   
 

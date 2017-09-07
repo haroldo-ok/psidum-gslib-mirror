@@ -1,15 +1,21 @@
 
 
+/*
+ * GSELib : Generic Scroll Engine by Psidum
+ * 
+ * General purpose 8 way scrolling engine for use in games or demos. 
+ * Uses 16x16 Metatiles.
+ * 
+ * Thanks to everyone in the Sega Master System dev community.
+ * Special thanks to Calindro, Kagesan, Efry, Maxim, Sverx, Bock, vbt and all the rest!
+ * 
+ */
+
+
+
 .section "GSELib" free
 
 
-; == METATILES
-; - Metatiles has header in slot 0
-; - Must be on 2k boundary!
-
-
-; == SCROLLTABLE
-; -  header prior to actual data
 
 
 
@@ -18,7 +24,10 @@
 .define GSE_METATILE_TABLE              $8000       ; location of metatile table aligned to 2k boundary
 .define GSE_METATILE_TABLE_HIGH_BYTE    $80
 .define GSE_HORIZONTAL_ADDITION         $0F         ; addition value required to push scrolltable pointer to right size of screen 
-.define GSE_NAMETABLE_BASE_ADDRESS      $7800       ; base address of nametable in vram including write bit set (14)   
+.define GSE_NAMETABLE_BASE_ADDRESS      $7800       ; base address of nametable in vram including write bit set (14) 
+.define GSE_NAMETABLE_HIGH_BYTE_START   $78
+.define GSE_NAMETABLE_HIGH_BYTE_END     $7F  
+.define GSE_NAMETABLE_WIDTH_IN_TILES    $40
 
 .enum GSE_GENERAL_RAM asc
         
@@ -38,17 +47,24 @@
         GSE_ScrolltablePointer          dw
         GSE_NametablePointer            dw
         GSE_MetatileLookupBuffer        dw
+        GSE_MetatileXBuffer             dw
+        GSE_MetatileYBuffer             dw
         GSE_X                           dw          ; current x point in scrolltable
         GSE_Y                           dw          ; current y point in scroll table
+        GSE_Y224                        db          ; stores Y%224. Needed to speed things up.
+        GSE_YRefresh                    db          ; used in refresh window call for speed
         GSE_XUpdateRequest              db          ; requested x adjustment (signed)
         GSE_YUpdateRequest              db          ; requested y adjustment (signed)
         GSE_XUpdateStatus               db          ; represents required updates if any
         GSE_YUpdateStatus               db          ; ^^
-        GSE_Y224                        db          ; stores Y%224. Needed to speed things up.
         GSE_NametableUpdateColumn       dw          ; first entry in nametable for column update
         GSE_NametableUpdateRow          dw          ; first entry in nametable for row update
-        GSE_NATColumnBuffer             dsb 100
-        GSE_NATRowBuffer                dsb 100  
+        GSE_NATColumnBuffer             dsb 64
+        GSE_NATRowBuffer                dsb 72  
+        GSE_MetatileUpdates             dsb 80      ; you need 10 bytes per maximum update, default here is 80 = 8 update!
+        GSE_MetatileUpdatesCount        db
+        GSE_MetatileUpdatesAddress      dw
+        GSE_RAMJump                     dsb 3
         
 .ende
 
@@ -58,7 +74,7 @@
  * 
  * @in hl: Scrolltable Location
  */
-GSE_InitaliseMap:           ; == Copy Scrolltable Header to Ram (its structure is identical to out enum)
+GSE_InitaliseMap:           ; == Copy Scrolltable Header to Ram (its structure is identical to enum)
                             ld de, GSE_GENERAL_RAM + 4
                             ld bc, 13
                             ldir
@@ -82,9 +98,9 @@ GSE_InitaliseMap:           ; == Copy Scrolltable Header to Ram (its structure i
                             ld bc, (GSE_HeightInMetatiles)
                             ld de, (GSE_WidthInMetatiles)
                             
--:                          ld (ix+0), h                        ; == psudo 
+-:                          ld (ix+0), h                        ; == Create Table Containing Start Address of Metatile Rows 
                             inc ix                              ; lut_entry = Scrolltable Location
-                            ld (ix+0), l                        ; loop height in metatiles
+                            ld (ix+0), l                        ; loop (height in metatiles)
                             inc ix                              ; { 
                             add hl, de                          ;   write lut_entry
                             dec bc                              ;   lut_entry += width in metatiles
@@ -92,114 +108,31 @@ GSE_InitaliseMap:           ; == Copy Scrolltable Header to Ram (its structure i
                             or c
                             jr nz, -
                             
-+:                          ret
-
-
-
-
-/* == Retreives from Scrolltable, Metatile ID and address
- * 
- * - Stores address in buffer GSE_MetatileLookupBuffer.
- * - Requires GSE_MetatileLUT to have been created.
- * - GSE_MetatileLUT has Scrolltable base address baked in so no need do add this!
- * 
- * @in hl: Y
- * @in de: X
- * 
- * @out a:  metatile id
- * @out hl: address of metatile in scrolltable
- */
-GSE_MetatileLookup:         ; == Convert Y to LUT Entry and retrieve value
-                            ld a, %11110000
-                            and l
-                            srl h
-                            rra
-                            srl h
-                            rra
-                            srl h
-                            rra
-                            ld l, a
++:                          ; == Initialize Ram
+                            ld hl, GSE_MetatileUpdates
+                            ld (GSE_MetatileUpdatesAddress), hl
                             
-                            ld bc, (GSE_MetatileLUTLoc)
-                            add hl, bc
-                            ld a, (hl)                      ; indirection      
-                            inc hl                       
-                            ld l, (hl)                   
-                            ld h, a    
-
-
-                            ; == Divide X by 16 then add to above address
-                            ld a, e
-                            srl d
-                            rra
-                            srl d
-                            rra
-                            srl d
-                            rra
-                            srl d
-                            rra
-                            ld e, a
-                            add hl, de
-                            
-                            ; == Put Metatile ID in a and store address in buffer.
-                            ld a, (hl)
-                            ld (GSE_MetatileLookupBuffer), hl
-                            
-                            ret
-                            
-                            
-                            
-                            
-/* == Retreives from Scrolltable, Nametable Entry
- * 
- * - Stores address of surrounding metatile in buffer GSE_MetatileLookupBuffer.
- * - Requires GSE_MetatileLUT to have been created.
- * - GSE_MetatileLUT has Scrolltable base address baked in so no need do add this!
- * 
- * @in hl: Y
- * @in de: X
- * 
- * @out hl: Nametable entry
- */                      
-GSE_TileLookup:             ; == Create offset for within Metatile (which nametable entry does x,y point to)
-                            ld a, %00000001
-                            and l
-                            rla
-                            rla
-                            ld c, a
-                            ld a, %00000001
-                            and e
-                            rla
-                            or c
-                            push af
-                            
-                            ; == Retrieve Metatile ID
-                            call GSE_MetatileLookup
-                            
-                            ; == Resolve in to Metatile Address - ((ld << 3) + Offset + GSE_METATILE_TABLE)
-                            ld l, a
                             xor a
-                            ld h, a
-                            add hl, hl
-                            add hl, hl
-                            add hl, hl
-                            pop af
-                            add a, l
-                            ld l, a
-                            ld de, (GSE_METATILE_TABLE)
-                            add hl, de
+                            ld (GSE_MetatileUpdatesCount), a
                             
-                            ; == Get Nametable entry using resolved address
-                            ld a, (hl)                      ; indirection      
-                            inc hl
-                            ld h, (hl)
-                            ld l, a
-                            
+                            ; == Set up GSE_RAMJump
+                            ld a, $C3
+                            ld (GSE_RAMJump), a
+
                             ret
-                            
-                            
-                            
-                            
+
+
+
+
+/* == Sets Internal Settings for Specified Window Position
+ * 
+ * - Stores X,Y
+ * - Creates Pointers based on X,Y
+ * 
+ * **NOTES
+ * - Only single modulo is needed!
+ * - General Clean Up!
+ */                                
 GSE_PositionWindow:         ; **** Generate GSE_ScrolltablePointer
                             ; == Store (x, y) in ram
                             ld (GSE_Y), hl
@@ -295,8 +228,354 @@ GSE_PositionWindow:         ; **** Generate GSE_ScrolltablePointer
                             
                             
                             
+ /* == Updates Nametable contents (based on current internal window possition)
+ * 
+ * - Active Display Safe
+ * 
+ * ** NOTES: NEEDS MAJOR WORK
+ * - Currently not Active Display Safe (needs to be)
+ * - horrible code written just to get it working.
+ * - Uses existing row update code however this is not active display safe, needs to change!
+ */                             
+GSE_RefreshScreen:          ; == Set VDP Nametable Pointer
+                            ld hl, (GSE_NametablePointer)
+                            ld (GSE_NametableUpdateRow), hl
+
                             
-GSEPreProcessUpdate:        ; == Initialize
+                            ; == Keep a Modified Y to reflect rows being updated
+                            ld hl, (GSE_Y)
+                            ld (GSE_YRefresh), hl ; using this as temp ram entry
+                            
+                            ld a, (GSE_Y224)
+                            srl a
+                            srl a
+                            srl a
+                            sub 28
+                            ld (GSE_NATColumnBuffer), a
+                            
+                            ld a, 28
+                            ld (GSE_NATColumnBuffer + 1), a
+                            
+                            
+_RefreshLoop:               ; == Set VDP Pointer at Start of Row
+                            ld hl, (GSE_NametableUpdateRow)
+                            ld c, VDP_CONTROL_PORT
+                            out (c), l
+                            out (c), h
+                            
+                            ; == Lookup Metatile for this Row
+                            ld hl, (GSE_YRefresh)
+                            ld de, (GSE_X)
+                            call GSE_MetatileLookup
+                            
+                            ; == Store address in iy
+                            ld a, h
+                            ld iyh, a
+                            ld a, l
+                            ld iyl, a
+                            
+                            ; == Put Y Offset in to ixl and Unroll a row of Nametable data.
+                            ld a, (GSE_YRefresh)
+                            and %00001000
+                            rrca
+                            ld ixl, a
+                            call _unrollRowForNTUpdate          ; Unroll buffer table column for nametable updates!
+                            
+                            ; == Add Offset to Start location in Buffer.
+                            ld a, (GSE_X)
+                            add a, 8
+                            and %00001000
+                            rrca
+                            rrca
+                            ld hl, GSE_NATRowBuffer
+                            ld e, a
+                            xor a
+                            ld d, a
+                            add hl, de
+                            
+                            ; == Calculate Number of Bytes to be Written in first Write, store in b.
+                            ld a, (GSE_X)
+                            add a, 8
+                            and %11111000
+                            rrca
+                            rrca
+                            ld d, a
+                            ld a, 64
+                            sub d
+                            and %00111111
+                            ld d, a
+                            
+                            ; == Write Buffered Data to VDP Nametable
+                            ld c, VDP_DATA_PORT
+                            -: outi
+                            dec d
+                            jp nz, -
+                            
+                            ; == Set VDP Address to Start of Row for Second Write
+                            ld de, (GSE_NametableUpdateRow)
+                            ld c, VDP_CONTROL_PORT
+                            ld a, %11000000
+                            and e
+                            out (c), a
+                            out (c), d
+                            
+                            ; == Calculate Number of Bytes to be Written in scond Write, store in b.
+                            ld a, (GSE_X)
+                            add a, 8
+                            and %11111000
+                            rrca
+                            rrca
+                            ld d, a
+                            ld c, VDP_DATA_PORT
+                            
+                            ; == Write Buffered Data to VDP Nametable
+                            -: outi
+                            dec d
+                            jp nz, -
+                            
+                            ; **** Prep for Next Write.
+                            ; == Push VDP Nametable address to next Row.
+                            ld hl, (GSE_NametableUpdateRow)
+                            ld de, GSE_NAMETABLE_WIDTH_IN_TILES
+                            add hl, de
+                            ld (GSE_NametableUpdateRow), hl
+                            
+                            
+                            ; == Have we written rows? Return if true;
+                            ld a, (GSE_NATColumnBuffer + 1)
+                            dec a
+                            ret z
+                            ld (GSE_NATColumnBuffer + 1), a
+                            
+                            ; == Is next row at top of VDP Nametable, reset Address if true;
+                            ld a, (GSE_NATColumnBuffer)
+                            inc a
+                            ld (GSE_NATColumnBuffer), a
+                            jp nz, +
+                            ld hl, (GSE_NametableUpdateRow)
+                            ld h, GSE_NAMETABLE_HIGH_BYTE_START
+                            ld a, %00111111
+                            and l
+                            ld l, a
+                            ld (GSE_NametableUpdateRow), hl
+                            +:
+                            
+                            ; == Adjust Temp Y Value for Next Write.
+                            ld hl, (GSE_YRefresh)
+                            ld d, 0
+                            ld e, 8
+                            add hl, de
+                            ld (GSE_YRefresh), hl
+                            
+                            jp _RefreshLoop
+                            
+                            
+                            
+                            
+
+/* == Retreives from Scrolltable, Metatile ID and address
+ * 
+ * - Stores address in buffer GSE_MetatileLookupBuffer.
+ * - Requires GSE_MetatileLUT to have been created.
+ * - GSE_MetatileLUT has Scrolltable base address baked in so no need do add this!
+ * 
+ * @in hl: Y
+ * @in de: X
+ * 
+ * @out a:  metatile id
+ * @out hl: address of metatile in scrolltable
+ * 
+ */
+GSE_MetatileLookup:         ; == Convert Y to LUT Entry and retrieve value
+                            ld (GSE_MetatileXBuffer), de
+                            ld (GSE_MetatileYBuffer), hl
+                            ld a, %11110000
+                            and l
+                            srl h
+                            rra
+                            srl h
+                            rra
+                            srl h
+                            rra
+                            ld l, a
+                            
+                            ld bc, (GSE_MetatileLUTLoc)
+                            add hl, bc
+                            ld a, (hl)                      ; indirection      
+                            inc hl                       
+                            ld l, (hl)                   
+                            ld h, a    
+
+
+                            ; == Divide X by 16 then add to above address
+                            ld a, e
+                            srl d
+                            rra
+                            srl d
+                            rra
+                            srl d
+                            rra
+                            srl d
+                            rra
+                            ld e, a
+                            add hl, de
+                            
+                            ; == Put Metatile ID in a and store address in buffer.
+                            ld a, (hl)
+                            ld (GSE_MetatileLookupBuffer), hl
+                            
+                            ret
+                            
+                            
+                            
+                            
+/* == Retreives from Scrolltable, Nametable Entry
+ * 
+ * - Stores address of surrounding metatile in buffer GSE_MetatileLookupBuffer.
+ * - Requires GSE_MetatileLUT to have been created.
+ * - GSE_MetatileLUT has Scrolltable base address baked in so no need do add this!
+ * 
+ * @in hl: Y
+ * @in de: X
+ * 
+ * @out hl: Nametable entry
+ */                      
+GSE_TileLookup:             ; == Create offset for within Metatile (which nametable entry does x,y point to)
+                            ld a, %00000001
+                            and l
+                            rla
+                            rla
+                            ld c, a
+                            ld a, %00000001
+                            and e
+                            rla
+                            or c
+                            push af
+                            
+                            ; == Retrieve Metatile ID
+                            call GSE_MetatileLookup
+                            
+                            ; == Resolve in to Metatile Address - ((ld << 3) + Offset + GSE_METATILE_TABLE)
+                            ld l, a
+                            xor a
+                            ld h, a
+                            add hl, hl
+                            add hl, hl
+                            add hl, hl
+                            pop af
+                            add a, l
+                            ld l, a
+                            ld de, (GSE_METATILE_TABLE)
+                            add hl, de
+                            
+                            ; == Get Nametable entry using resolved address
+                            ld a, (hl)                      ; indirection      
+                            inc hl
+                            ld h, (hl)
+                            ld l, a
+                            
+                            ret
+                            
+                            
+                            
+
+
+
+/*
+ * == Write last accessed Scrolltable Metatile entry to VDP.
+ * 
+ * NOTE: This Routine assumes that the scrolltable entry in question is in current display.
+ * If you call this on an entry that is not in the current window space it will update
+ * the metatile relative to current display creating garbage
+ * 
+ * In Short... ONLY CALL THIS ROUTINE IF YOU ARE SURE THE SCROLLTABLE ENTRY IS CURRENTLY BEING
+ * DISPLAYED IN FULL ON SCREEN!
+ * 
+ * - GSE_MetatileLookup stores buffer of last entry looked up, this routine uses this to update
+ * last looked up entry.
+ */
+GSE_MetatileUpdate:         ; == Y >> 4
+                            ld hl, (GSE_MetatileYBuffer)
+                            ld a, l
+                            srl h
+                            rra
+                            srl h
+                            rra
+                            srl h
+                            rra 
+                            srl h 
+                            rra
+                            ld l, a
+                            
+                            ; == Add GSE_ModTable base table address 
+                            ld de, GSE_ModTable
+                            add hl, de
+                            
+                            ; == Indirection + Shifts to get address of Y Row in Nametable
+                            ld h, (hl)
+                            xor a
+                            ld l, a
+                            ld d, a             ; Prep for X
+                            srl h
+                            rr l
+                            
+                            ; == Isolate metatile location in X and add
+                            ld a, (GSE_MetatileXBuffer)
+                            and %11110000
+                            rra
+                            rra
+                            ld e, a
+                            add hl, de
+                            
+                            ; == Write Resolved Address of Metatile on VDP (including register high bits)
+                            ex de, hl
+                            ld hl, (GSE_MetatileUpdatesAddress)
+                            ld (hl), e
+                            inc hl
+                            ld (hl), d
+                            inc hl
+                            ex de, hl
+                            
+                            ; == Resolve Metatile Location from ID
+                            ld hl, (GSE_MetatileLookupBuffer)
+                            ld l, (hl)
+                            ld a, l
+                            and %111                          
+                            or GSE_METATILE_TABLE_HIGH_BYTE     ; add high bits of metatile address (table must be on 2k boundary)
+                            ld h, a
+                            ld a, l
+                            and %11111000
+                            ld l, a   
+                            
+                            ; == Copy Contents of Metatile To Ram Buffer
+                            ldi
+                            ldi
+                            ldi
+                            ldi
+                            ldi
+                            ldi
+                            ldi
+                            ldi
+                            
+                            ; == Update Count and Address for more Metatile Updates if any 
+                            ld (GSE_MetatileUpdatesAddress), de
+                            ld hl, GSE_MetatileUpdatesCount
+                            inc (hl)
+                            
+                            ret
+                            
+                            
+                            
+ /* == Routine to be Called During Active Display
+ * 
+ * - Checked XUpdateRequest + YUpdateRequest Status for updates
+ * - Uses pointers to speed up nametable and scrolltable lookups, updates.
+ * - Checks boundary crosses and updates pointers as required.
+ * 
+ * NOTES: Somewhat Optimized.
+ * - Remove use of 'i' register for c compatibility.
+ */                              
+GSE_ActiveDisplayRoutine:   ; == Initialize
                             ld iy, GSE_GENERAL_RAM
                             xor a
                             ld (GSE_XUpdateStatus), a
@@ -322,7 +601,7 @@ _rightScroll:               ; == Update currentXScroll Value.
 +:                          ld (GSE_X), hl      
                                    
 
-_rightNameTable:            ; == Check for NameTable Boundary Cross
+_rightNametableCheck:       ; == Check for NameTable Boundary Cross
                             and %11111000
                             jp z, _yScroll
                             
@@ -340,7 +619,7 @@ _rightNameTable:            ; == Check for NameTable Boundary Cross
                             ld (GSE_NametablePointer), a
 
 
-_rightBufferTable:          ; == Check for BufferTable Boundary Cross
+_rightScrolltableCheck:     ; == Check for BufferTable Boundary Cross
                             ld a, i                                 
                             and %11110000                    
                             jp z, _yScroll
@@ -364,7 +643,7 @@ _leftScroll:                ; == Update currentXScroll Value.
                             ld i, a                             ; store low byte different pre / post scroll (for boundary tests)
 +:                          ld (GSE_X), hl             
                             
-_leftNameTable:             ; == Check for NameTable Boundary Cross
+_leftNametableCheck:             ; == Check for NameTable Boundary Cross
                             and %11111000
                             jp z, _yScroll
                             
@@ -382,7 +661,7 @@ _leftNameTable:             ; == Check for NameTable Boundary Cross
                             ld (GSE_NametablePointer), a
                             
                             
-_leftBufferTable:           ; == Check for BufferTable Boundary Cross
+_leftScrolltableCheck:      ; == Check for BufferTable Boundary Cross
                             ld a, i                                 
                             and %11110000                       
                             jp z, _yScroll
@@ -396,7 +675,7 @@ _leftBufferTable:           ; == Check for BufferTable Boundary Cross
 _yScroll:                   ; == Check Up / Down Scroll... 
                             ld a, (GSE_YUpdateRequest)
                             and a                           
-                            ret z          ; no value = no vertical scroll
+                            jp z, _processUpdateBuffers          ; no value = no vertical scroll
                             jp m, _upScroll                     ; signed = left scroll.
 
 
@@ -422,9 +701,9 @@ _downScroll:                ; == Update dummyYScroll Value (wraps around 224 Nam
 +:                          ld (GSE_Y), hl             
                             
                             
-_downNameTable:             ; == Check for NameTable Boundary Cross
+_downNametableCheck:        ; == Check for NameTable Boundary Cross
                             and %11111000
-                            ret z 
+                            jp z, _processUpdateBuffers 
                             
                             ; == NameTable Bounary Crossed... Process
                             ld (iy + GSE_YUpdateStatus - GSE_GENERAL_RAM), 1 ; ????
@@ -432,16 +711,16 @@ _downNameTable:             ; == Check for NameTable Boundary Cross
                             ld hl, (GSE_NametablePointer)                  ; Update name table pointer.
                             ld de, 64                           
                             add hl, de
-                            ld a, $7F                                       ; TODO shift this to .defines for variable nat positioning
+                            ld a, GSE_NAMETABLE_HIGH_BYTE_END                                      ; TODO shift this to .defines for variable nat positioning
                             cp h
                             jp nz, +
-                            ld h, $78
+                            ld h, GSE_NAMETABLE_HIGH_BYTE_START
 +:                          ld (GSE_NametablePointer), hl
 
-_downBufferTable:           ; == Check for BufferTable Boundary Cross
+_downScrolltableCheck:      ; == Check for BufferTable Boundary Cross
                             ld a, i                                 
                             and %11110000                       ; !SMC metatile width bitmask
-                            ret z
+                            jp z, _processUpdateBuffers
                             
                             ; == BufferTable Boundary Crossed... Process
                             
@@ -450,10 +729,9 @@ _downBufferTable:           ; == Check for BufferTable Boundary Cross
                             add hl, de
                             ld (GSE_ScrolltablePointer), hl
 
-                            ret
-                              
-                              
-                                
+                            jp _processUpdateBuffers
+                            
+                            
 _upScroll:                  ; == Update dummyYScroll Value (wraps around 224 NameTable height!)
                             ld b, a
                             ld a, (GSE_Y224)
@@ -474,10 +752,10 @@ _upScroll:                  ; == Update dummyYScroll Value (wraps around 224 Nam
                             ld i, a                             ; store low byte different pre / post scroll (for boundary tests)
 +:                          ld (GSE_Y), hl             
                             
-_upNameTable:               ; == Check for NameTable Boundary Cross
+_upNametableCheck:          ; == Check for NameTable Boundary Cross
                             ld a, i
                             and %11111000
-                            ret z
+                            jp z, _processUpdateBuffers
 
                             ; == NameTable Bounary Crossed... Process
                             ld (iy + GSE_YUpdateStatus - GSE_GENERAL_RAM), 129
@@ -486,16 +764,16 @@ _upNameTable:               ; == Check for NameTable Boundary Cross
                             ld de, 64
                             or a
                             sbc hl, de
-                            ld a, $77
+                            ld a, GSE_NAMETABLE_HIGH_BYTE_START - 1
                             cp h
                             jp nz, +
-                            ld h, $7E
+                            ld h, GSE_NAMETABLE_HIGH_BYTE_END - 1
 +:                          ld (GSE_NametablePointer), hl
 
-_upBufferTable:             ; == Check for BufferTable Boundary Cross
+_upScrolltableCheck:        ; == Check for BufferTable Boundary Cross
                             ld a, i                                 
                             and %11110000                       ; !SMC metatile width bitmask
-                            ret z
+                            jp z, _processUpdateBuffers
                             
                             ; == BufferTable Boundary Crossed... Process
                             
@@ -505,26 +783,16 @@ _upBufferTable:             ; == Check for BufferTable Boundary Cross
                             sbc hl, de
                             ld (GSE_ScrolltablePointer), hl
 
-                            ret
                             
                             
-                            
-                            
-                            
-processScrollUpdates:       
-_px:                        ; == Left / Right Scroll Occur?
+_processUpdateBuffers:       
+_updateX:                   ; == Left / Right Scroll Occur?
                             ld a, (GSE_XUpdateStatus)
                             or a
-                            jp z, _py
-                            jp m, _p1_name
+                            jp z, _updateY
+                            jp m, _updateBufferLeft
                             
-_pr_name:                   ; == Create Adjusted btPointer for _unrollColumnForNTUpdate call
-;                            ld de, (GSE_ScrolltablePointer)         ; We need to pass _unrollColumnForNTUpdate a buffertable pointer
-;                            ld a, 16
-;                            add a, e
-;                            jr nc, +
-;                            inc d
-;+:                          ld e, a
+_updateBufferRight:               ; == Create Adjusted btPointer for _unrollColumnForNTUpdate call
                             ld iy, (GSE_ScrolltablePointer)
                             ld de, 16
                             add iy, de
@@ -552,24 +820,14 @@ _pr_name:                   ; == Create Adjusted btPointer for _unrollColumnForN
                             ld a, (GSE_NametablePointer + 1)
                             ld (GSE_NametableUpdateColumn+ 1), a    
                             
+                            jp _updateY
                             
-                            jp _py
-;                            
-;                     
-_p1_name:                   ; == NameTable Update Required?
+                     
+_updateBufferLeft:          ; == NameTable Update Required?
                             rra
-                            jp nc, _py
+                            jp nc, _updateY
                             
-
                             ; == Create Adjusted btPointer for _unrollColumnForNTUpdate call
-;                            ld de, (GSE_ScrolltablePointer)  
-;                            ld a, (GSE_X) 
-;                            add a, 8
-;                            and %00001000
-;                            jp nz, +
-;                            inc de
-;                            +:
-                            
                             ld iy, (GSE_ScrolltablePointer)
                             ld a, (GSE_X) 
                             add a, 8
@@ -579,9 +837,6 @@ _p1_name:                   ; == NameTable Update Required?
                             +:
                             
                             ; == Create X offset for _unrollColumnForNTUpdate call
-                            ;ld a, (GSE_X)              ; get x offset for meta tile. Writing column so need to adjust for this.
-                            ;add a, 8
-                            ;and %00001000
                             rrca
                             rrca
                             ld ixl, a
@@ -594,15 +849,15 @@ _p1_name:                   ; == NameTable Update Required?
                             ld (GSE_NametableUpdateColumn), hl
 
                            
-_py:                        ; == Left / Right Scroll Occur?
+_updateY:                   ; == Left / Right Scroll Occur?
                             ld a, (GSE_YUpdateStatus)
                             or a
                             ret z
-                            jp m, _pu_name
+                            jp m, _updateBufferUp
                            
 
 
-_pd_name:                   ; == NameTable Update Required?
+_updateBufferDown:          ; == NameTable Update Required?
                             rra
                             ret nc
 
@@ -631,24 +886,19 @@ _pd_name:                   ; == NameTable Update Required?
                             ld de, 64
                             or a
                             sbc hl, de
-                            ld a, $77
+                            ld a, GSE_NAMETABLE_HIGH_BYTE_START - 1
                             cp h
                             jp nz, +
-                            ld h, $7E
+                            ld h, GSE_NAMETABLE_HIGH_BYTE_END - 1
 +:                          ld (GSE_NametableUpdateRow), hl
                             
                             ret
 
-
-
-
-
-_pu_name:                   ; == NameTable Update Required?
+_updateBufferUp:            ; == NameTable Update Required?
                             rrca
                             ret nc
                             
                             ; == Get btPointer for _unrollColumnForNTUpdate call
-                            ;ld bc, (GSE_ScrolltablePointer)    
                             ld iy, (GSE_ScrolltablePointer)
                             
                             ; == Create Y offset for _unrollColumnForNTUpdate call
@@ -664,6 +914,221 @@ _pu_name:                   ; == NameTable Update Required?
                             
                             ret
 
+
+
+
+                          
+                            
+                                               
+/*
+ * == Vblank call writes required updates to Nametable in vdp.
+ * 
+ * - Not Active Display Safe!
+ */                             
+GSE_VBlankRoutine:          ; == Check if row update required.
+                            ld a, (GSE_YUpdateStatus)
+                            and a
+                            jp z, _updateColumn
+                            
+_writeRow:                  ; == Put VDP Pointer Address in Shadow Register and Set VDP Pointer.
+                            exx
+                            ld hl, (GSE_NametableUpdateRow)                  
+                            ld c, VDP_CONTROL_PORT
+                            out (c), l
+                            out (c), h
+                            exx
+                            ld c, VDP_DATA_PORT
+
+                            ; == Construct LUT address For First Write
+                            ld a, (GSE_X)              
+                            and %11111000
+                            rrca
+                            ld hl, GSE_LUTRowUpdate
+                            add a, l
+                            ld l, a
+                            push hl                             ; Story copy on stack
+                            
+                            ; == Extract Buffer Location from LUT and store in DE
+                            ; (where to start copying data from buffer to vdp)
+                            ld e, (hl)                          
+                            inc hl
+                            ld d, (hl)
+                            inc hl
+                            
+                            ; == Extract JUMP address from LUT, write to RAM and call as Jump Address
+                            ; outi code is unrolled, this controls number of writes before ret.
+                            ld a, (hl)                          
+                            ld (GSE_RAMJump + 1), a
+                            inc hl
+                            ld a, (hl)
+                            ld (GSE_RAMJump + 2), a
+                            ex de, hl
+                            call GSE_RAMJump
+                            
+                            ; == Update VDP Pointer For Second Write
+                            ; Second write always starts at left most side of Nametable so clear
+                            ; low bytes of address and update.
+                            exx
+                            ld a, %11000000
+                            and l
+                            out (c), a
+                            out (c), h
+                            exx
+                            
+                            ; == Move Forward 130 bytes in LUT
+                            ex de, hl
+                            pop hl
+                            ld a, 130
+                            add a, l
+                            ld l, a
+                            jp nc, +
+                            inc h
+                            +:
+                            
+                            ; == Extract JUMP address from LUT, write to RAM and call as Jump Address
+                            ; outi code is unrolled, this controls number of writes before ret.
+                            ld a, (hl)                          
+                            ld (GSE_RAMJump + 1), a
+                            inc hl
+                            ld a, (hl)
+                            ld (GSE_RAMJump + 2), a
+                            ex de, hl
+                            call GSE_RAMJump
+
+                            
+_updateColumn:              ; == Check if row update required.
+                            ld a, (GSE_XUpdateStatus)
+                            and a
+                            jp z, _MetatileUpdates
+                            
+                            ; == Put VDP Pointer Address in Shadow Register and Set VDP Pointer.
+                            exx
+                            ld hl, (GSE_NametableUpdateColumn)            
+                            ld de, 64                           ; Each new column entry is 64 bytes ahead, store here for addition
+                            ld c, VDP_CONTROL_PORT
+                            exx
+                            
+                            ; == Construct LUT address For First Write
+                            ld a, (GSE_Y224)
+                            and %11111000
+                            rrca
+                            ld hl, GSE_LUTColumnUpdate
+                            add a, l
+                            ld l, a
+                            push hl                             ; Story copy on stack
+                            
+                            ; == Extract Buffer Location from LUT and store in DE
+                            ; (where to start copying data from buffer to vdp)
+                            ld e, (hl)                          
+                            inc hl
+                            ld d, (hl)
+                            inc hl
+                            
+                            ; == Extract JUMP address from LUT, write to RAM and call as Jump Address
+                            ; outi code is unrolled, this controls number of writes before ret.
+                            ld a, (hl)                          
+                            ld (GSE_RAMJump + 1), a
+                            inc hl
+                            ld a, (hl)
+                            ld (GSE_RAMJump + 2), a
+                            ex de, hl
+                            ld c, VDP_DATA_PORT
+                            call GSE_RAMJump
+                            
+                            ; == Update VDP Pointer For Second Write
+                            ; Second write always starts at top row of Nametable so reset high byte 
+                            ; to GSE_NAMETABLE_HIGH_BYTE_START, keep low bytes of address and update.
+                            exx
+                            ld a, (GSE_NametableUpdateColumn)                  ; Get vram nametable pointer
+                            and %00111111
+                            ld h, GSE_NAMETABLE_HIGH_BYTE_START
+                            ld l, a
+                            exx
+
+                            ; == Move Forward 114 bytes in LUT
+                            ex de, hl
+                            pop hl
+                            ld a, 114
+                            add a, l
+                            ld l, a
+                            jp nc, +
+                            inc h
+                            +:
+                            
+                            ; == Extract JUMP address from LUT, write to RAM and call as Jump Address
+                            ; outi code is unrolled, this controls number of writes before ret.
+                            ld a, (hl)                          
+                            ld (GSE_RAMJump + 1), a
+                            inc hl
+                            ld a, (hl)
+                            ld (GSE_RAMJump + 2), a
+                            ex de, hl
+                            call GSE_RAMJump
+                            
+                            
+_MetatileUpdates:           ; == Check if Metatile Updates are Required.
+                            ld a, (GSE_MetatileUpdatesCount)
+                            or a
+                            jp z, _VBlankCleanup
+                            
+                            ld hl, GSE_MetatileUpdates
+                            ld b, a
+                            
+_MetatileUpdatesLoop:       ; == Process each metatile Update
+                            ld a, 7                 ; count = number of metatile to update.
+                            add a, b                ; add 7 to current number, outi will reduce this by 8
+                            ld b, a                 ; end result will be to subtract 1 from current number 
+                            
+                            ; == First word is VDP address of update. Update VDP Pointer.
+                            ld d, (hl)
+                            inc hl
+                            ld e, (hl)
+                            inc hl
+                            ld c, VDP_CONTROL_PORT
+                            out (c), d
+                            out (c), e
+                            
+                            ; == Write first two entries of Metatile.
+                            dec c
+                            outi
+                            outi
+                            outi
+                            outi
+                            
+                            ; == Update VDP pointer to be one nametable row lower.
+                            ld a, $40
+                            add a, d
+                            ld d, a
+                            inc c
+                            out (c), d
+                            out (c), e
+                            
+                            ; == Write last two entries.
+                            dec c
+                            outi
+                            outi
+                            outi
+                            outi
+                            
+                            ; == Loop if required.
+                            ld a, b
+                            or a
+                            jp nz, _MetatileUpdatesLoop
+                            
+                            
+_VBlankCleanup:             ; == Reset RAM Variables for next Active Display.
+                            ld hl, GSE_MetatileUpdates
+                            ld (GSE_MetatileUpdatesAddress), hl
+                            
+                            xor a
+                            ld (GSE_MetatileUpdatesCount), a
+                            
+                            ret
+                              
+                            
+
+
+                            
 
 
 
@@ -697,14 +1162,13 @@ _unrollMetaTileRow:         ld l, (iy+0)                        ; == Resolve met
                             ldi
                             
                             xor a                               ; loop
-                            and c
+                            or c
                             ret z
                             
                             inc iy                              ; Update Scrolltable Pointer
                             
                             jp _unrollMetaTileRow
-                            
-                            
+                                                        
                             
                             
                             
@@ -740,7 +1204,7 @@ _unrollMetaTileColumn:      ld l, (iy+0)                        ; == Resolve met
                             ldi
                             
                             xor a                               ; loop
-                            and c
+                            or c
                             ret z
                             
                             ld hl, (GSE_WidthInMetatiles)       ; Update Scrolltable Pointer
@@ -748,230 +1212,26 @@ _unrollMetaTileColumn:      ld l, (iy+0)                        ; == Resolve met
                             add iy, de
                             ex de, hl
                             
-                            jp _unrollMetaTileColumn                           
-                            
-                            
-                            
-                            
-                                               
-                            
-ntRowUpdate:                ld a, (GSE_YUpdateStatus)
-                            and a
-                            ret z
-                            
-                            exx
-                            ld hl, (GSE_NametableUpdateRow)                  ; Get vram nametable pointer
-                            ld c, VDP_CONTROL_PORT
-                            out (c), l
-                            out (c), h
-                            exx
-                            ld c, VDP_DATA_PORT
-
-                            ld a, (GSE_X)              ; Construct _ntColumnUpdateTable for current y location.
-                            and %11111000
-                            rrca
-                            ld hl, ntRowUpdateTable1
-                            add a, l
-                            ld l, a
-                            push hl                             ; Story copy on stack
-                            
-                            ld e, (hl)                          ; Indirection to get starting address in buffer
-                            inc hl
-                            ld d, (hl)
-                            inc hl
-                            
-                            ld a, (hl)                          ; indirection to get jump value (equals required number of vram writes)
-                            ld (smcRAMJump + 1), a
-                            inc hl
-                            ld a, (hl)
-                            ld (smcRAMJump + 2), a
-                            ex de, hl
-                            call smcRAMJump
-                            
-                            exx
-                            ld a, %11000000
-                            and l
-                            out (c), a
-                            out (c), h
-                            exx
-                            
-                            ld d, h
-                            ld e, l
-                            
-                            pop hl
-                            ld a, 128
-                            add a, l
-                            ld l, a
-                            
-                            inc hl
-                            inc hl
-                            
-                            ld a, (hl)                          ; indirection to get jump value (equals required number of vram writes)
-                            ld (smcRAMJump + 1), a
-                            inc hl
-                            ld a, (hl)
-                            ld (smcRAMJump + 2), a
-                            ex de, hl
-                            call smcRAMJump
-                            
-;                            ld a, (ntUpdateFlag)
-;                            bit 3, a
-;                            jp z, _ntRowUpdateFinalise
-                            
-
-                            
-_ntRowUpdateFinalise:       ;xor a
-                            ;ld (ntUpdateFlag), a
-                            ret
-
-                            
-                            
-
-                           
-                           
-                           
-                            
-ntColumnUpdate:            ; == Column Update Required?
-                            ld a, (GSE_XUpdateStatus)
-                            and a
-                            ret z
-                            
-                            ; == Set up VDP address and control port stuff in shadow registers.
-                            exx
-                            ld hl, (GSE_NametableUpdateColumn)            ; Get vram nametable pointer
-                            ld de, 64                           ; Each new column entry is 64 bytes ahead, store here for addition
-                            ld c, VDP_CONTROL_PORT
-                            exx
-                            
-                            ld a, (GSE_Y224)
-                            and %11111000
-                            rrca
-                            ld hl, ntColumnUpdateTable
-                            add a, l
-                            ld l, a
-                            push hl                             ; Story copy on stack
-                            
-                            ld e, (hl)                          ; Indirection to get starting address in buffer
-                            inc hl
-                            ld d, (hl)
-                            inc hl
-                            
-                            ld a, (hl)                          ; indirection to get jump value (equals required number of vram writes)
-                            ld (smcRAMJump + 1), a
-                            inc hl
-                            ld a, (hl)
-                            ld (smcRAMJump + 2), a
-                            ex de, hl
-                            ld c, VDP_DATA_PORT
-                            call smcRAMJump
-                            
-                            exx
-                            ld a, (GSE_NametableUpdateColumn)                  ; Get vram nametable pointer
-                            and %00111111
-                            ld h, $78
-                            ld l, a
-++:                            
-                            
-                            
-                            ld de, 64                           ; Each new column entry is 64 bytes ahead, store here for addition
-                            ld c, VDP_CONTROL_PORT
-                            exx
-                            
-                            ex de, hl
-                            pop hl
-                            ld a, 112
-                            add a, l
-                            ld l, a
-                            
-                            ;ld e, (hl)                         ; Indirection to get starting address in buffer
-                            inc hl
-                            ;ld d, (hl)
-                            inc hl
-                            
-                            ld a, (hl)                          ; indirection to get jump value (equals required number of vram writes)
-                            ld (smcRAMJump + 1), a
-                            inc hl
-                            ld a, (hl)
-                            ld (smcRAMJump + 2), a
-                            ex de, hl
-                            call smcRAMJump
-                            
-;                           ld a, (ntUpdateFlag)
-;                           bit 1, a
-;                           jp z, _ntColumnUpdateFinalise
-                            
-
-                            
-_ntColumnUpdateFinalise:    ;xor a
-                            ;ld (ntUpdateFlag), a
-                              ret
-                            
-.ends
+                            jp _unrollMetaTileColumn                             
 
 
-.org $0100
-.bank 1 slot 1
-.section "fff" force
 
-ntColumnUpdateTable:
-.dw GSE_NATColumnBuffer + ((00 * 2) & 3), columnNTWritesEnd - (28 * 11)
-.dw GSE_NATColumnBuffer + ((01 * 2) & 3), columnNTWritesEnd - (27 * 11)
-.dw GSE_NATColumnBuffer + ((02 * 2) & 3), columnNTWritesEnd - (26 * 11)
-.dw GSE_NATColumnBuffer + ((03 * 2) & 3), columnNTWritesEnd - (25 * 11)
-.dw GSE_NATColumnBuffer + ((04 * 2) & 3), columnNTWritesEnd - (24 * 11)
-.dw GSE_NATColumnBuffer + ((05 * 2) & 3), columnNTWritesEnd - (23 * 11)
-.dw GSE_NATColumnBuffer + ((06 * 2) & 3), columnNTWritesEnd - (22 * 11)
-.dw GSE_NATColumnBuffer + ((07 * 2) & 3), columnNTWritesEnd - (21 * 11)
-.dw GSE_NATColumnBuffer + ((08 * 2) & 3), columnNTWritesEnd - (20 * 11)
-.dw GSE_NATColumnBuffer + ((09 * 2) & 3), columnNTWritesEnd - (19 * 11)
-.dw GSE_NATColumnBuffer + ((10 * 2) & 3), columnNTWritesEnd - (18 * 11)
-.dw GSE_NATColumnBuffer + ((11 * 2) & 3), columnNTWritesEnd - (17 * 11)
-.dw GSE_NATColumnBuffer + ((12 * 2) & 3), columnNTWritesEnd - (16 * 11)
-.dw GSE_NATColumnBuffer + ((13 * 2) & 3), columnNTWritesEnd - (15 * 11)
-.dw GSE_NATColumnBuffer + ((14 * 2) & 3), columnNTWritesEnd - (14 * 11)
-.dw GSE_NATColumnBuffer + ((15 * 2) & 3), columnNTWritesEnd - (13 * 11)
-.dw GSE_NATColumnBuffer + ((16 * 2) & 3), columnNTWritesEnd - (12 * 11)
-.dw GSE_NATColumnBuffer + ((17 * 2) & 3), columnNTWritesEnd - (11 * 11)
-.dw GSE_NATColumnBuffer + ((18 * 2) & 3), columnNTWritesEnd - (10 * 11)
-.dw GSE_NATColumnBuffer + ((19 * 2) & 3), columnNTWritesEnd - (09 * 11)
-.dw GSE_NATColumnBuffer + ((20 * 2) & 3), columnNTWritesEnd - (08 * 11)
-.dw GSE_NATColumnBuffer + ((21 * 2) & 3), columnNTWritesEnd - (07 * 11)
-.dw GSE_NATColumnBuffer + ((22 * 2) & 3), columnNTWritesEnd - (06 * 11)
-.dw GSE_NATColumnBuffer + ((23 * 2) & 3), columnNTWritesEnd - (05 * 11)
-.dw GSE_NATColumnBuffer + ((24 * 2) & 3), columnNTWritesEnd - (04 * 11)
-.dw GSE_NATColumnBuffer + ((25 * 2) & 3), columnNTWritesEnd - (03 * 11)
-.dw GSE_NATColumnBuffer + ((26 * 2) & 3), columnNTWritesEnd - (02 * 11)
-.dw GSE_NATColumnBuffer + ((27 * 2) & 3), columnNTWritesEnd - (01 * 11)
+                            
+/*
+ * == Unrolled VDP Row Write
+ * Used to speed write rows of data on VBlank row update.
+ */                            
+                            .repeat 32
+                            outi
+                            outi
+                            .endr
+_UnrolledRowWrites:         ret
 
-.dw GSE_NATColumnBuffer + (00 * 2) + ((00 * 2) & 3), columnNTWritesEnd - (00 * 11)
-.dw GSE_NATColumnBuffer + (01 * 2) + ((01 * 2) & 3), columnNTWritesEnd - (01 * 11)
-.dw GSE_NATColumnBuffer + (02 * 2) + ((02 * 2) & 3), columnNTWritesEnd - (02 * 11)
-.dw GSE_NATColumnBuffer + (03 * 2) + ((03 * 2) & 3), columnNTWritesEnd - (03 * 11)
-.dw GSE_NATColumnBuffer + (04 * 2) + ((04 * 2) & 3), columnNTWritesEnd - (04 * 11)
-.dw GSE_NATColumnBuffer + (05 * 2) + ((05 * 2) & 3), columnNTWritesEnd - (05 * 11)
-.dw GSE_NATColumnBuffer + (06 * 2) + ((06 * 2) & 3), columnNTWritesEnd - (06 * 11)
-.dw GSE_NATColumnBuffer + (07 * 2) + ((07 * 2) & 3), columnNTWritesEnd - (07 * 11)
-.dw GSE_NATColumnBuffer + (08 * 2) + ((08 * 2) & 3), columnNTWritesEnd - (08 * 11)
-.dw GSE_NATColumnBuffer + (09 * 2) + ((09 * 2) & 3), columnNTWritesEnd - (09 * 11)
-.dw GSE_NATColumnBuffer + (10 * 2) + ((10 * 2) & 3), columnNTWritesEnd - (10 * 11)
-.dw GSE_NATColumnBuffer + (11 * 2) + ((11 * 2) & 3), columnNTWritesEnd - (11 * 11)
-.dw GSE_NATColumnBuffer + (12 * 2) + ((12 * 2) & 3), columnNTWritesEnd - (12 * 11)
-.dw GSE_NATColumnBuffer + (13 * 2) + ((13 * 2) & 3), columnNTWritesEnd - (13 * 11)
-.dw GSE_NATColumnBuffer + (14 * 2) + ((14 * 2) & 3), columnNTWritesEnd - (14 * 11)
-.dw GSE_NATColumnBuffer + (15 * 2) + ((15 * 2) & 3), columnNTWritesEnd - (15 * 11)
-.dw GSE_NATColumnBuffer + (16 * 2) + ((16 * 2) & 3), columnNTWritesEnd - (16 * 11)
-.dw GSE_NATColumnBuffer + (17 * 2) + ((17 * 2) & 3), columnNTWritesEnd - (17 * 11)
-.dw GSE_NATColumnBuffer + (18 * 2) + ((18 * 2) & 3), columnNTWritesEnd - (18 * 11)
-.dw GSE_NATColumnBuffer + (19 * 2) + ((19 * 2) & 3), columnNTWritesEnd - (19 * 11)
-.dw GSE_NATColumnBuffer + (20 * 2) + ((20 * 2) & 3), columnNTWritesEnd - (20 * 11)
-.dw GSE_NATColumnBuffer + (21 * 2) + ((21 * 2) & 3), columnNTWritesEnd - (21 * 11)
-.dw GSE_NATColumnBuffer + (22 * 2) + ((22 * 2) & 3), columnNTWritesEnd - (22 * 11)
-.dw GSE_NATColumnBuffer + (23 * 2) + ((23 * 2) & 3), columnNTWritesEnd - (23 * 11)
-.dw GSE_NATColumnBuffer + (24 * 2) + ((24 * 2) & 3), columnNTWritesEnd - (24 * 11)
-.dw GSE_NATColumnBuffer + (25 * 2) + ((25 * 2) & 3), columnNTWritesEnd - (25 * 11)
-.dw GSE_NATColumnBuffer + (26 * 2) + ((26 * 2) & 3), columnNTWritesEnd - (26 * 11)
-.dw GSE_NATColumnBuffer + (27 * 2) + ((27 * 2) & 3), columnNTWritesEnd - (27 * 11)
 
+/*
+ * == Unrolled VDP Column Write
+ * Used to speed write columns of data on VBlank row update.
+ */ 
                             .repeat 28
                             exx
                             out (c), l
@@ -981,92 +1241,203 @@ ntColumnUpdateTable:
                             outi
                             outi
                             .endr
-columnNTWritesEnd:          ret
+_UnrolledColumnWrites:      ret
+                            
+ 
+ 
+ 
+/*
+ * == LookUp Table for Row Updates.
+ * 
+ * Row Updates are split in two. 
+ * - First is from left side of window (as seen on screen)
+ * - Second is from left side of Nametable (as seen in vram)
+ * 
+ * This table contains location in buffer to start write and 
+ * a jump address to unrolled vdp row update code representing
+ * number of writes required for each update.
+ */                           
+GSE_LUTRowUpdate:
+.dw GSE_NATRowBuffer + ((00 * 2) & 3) + 2, _UnrolledRowWrites - (31 * 4)
+.dw GSE_NATRowBuffer + ((01 * 2) & 3) + 2, _UnrolledRowWrites - (30 * 4)
+.dw GSE_NATRowBuffer + ((02 * 2) & 3) + 2, _UnrolledRowWrites - (29 * 4)
+.dw GSE_NATRowBuffer + ((03 * 2) & 3) + 2, _UnrolledRowWrites - (28 * 4)
+.dw GSE_NATRowBuffer + ((04 * 2) & 3) + 2, _UnrolledRowWrites - (27 * 4)
+.dw GSE_NATRowBuffer + ((05 * 2) & 3) + 2, _UnrolledRowWrites - (26 * 4)
+.dw GSE_NATRowBuffer + ((06 * 2) & 3) + 2, _UnrolledRowWrites - (25 * 4)
+.dw GSE_NATRowBuffer + ((07 * 2) & 3) + 2, _UnrolledRowWrites - (24 * 4)
+.dw GSE_NATRowBuffer + ((08 * 2) & 3) + 2, _UnrolledRowWrites - (23 * 4)
+.dw GSE_NATRowBuffer + ((09 * 2) & 3) + 2, _UnrolledRowWrites - (22 * 4)
+.dw GSE_NATRowBuffer + ((10 * 2) & 3) + 2, _UnrolledRowWrites - (21 * 4)
+.dw GSE_NATRowBuffer + ((11 * 2) & 3) + 2, _UnrolledRowWrites - (20 * 4)
+.dw GSE_NATRowBuffer + ((12 * 2) & 3) + 2, _UnrolledRowWrites - (19 * 4)
+.dw GSE_NATRowBuffer + ((13 * 2) & 3) + 2, _UnrolledRowWrites - (18 * 4)
+.dw GSE_NATRowBuffer + ((14 * 2) & 3) + 2, _UnrolledRowWrites - (17 * 4)
+.dw GSE_NATRowBuffer + ((15 * 2) & 3) + 2, _UnrolledRowWrites - (16 * 4)
+.dw GSE_NATRowBuffer + ((16 * 2) & 3) + 2, _UnrolledRowWrites - (15 * 4)
+.dw GSE_NATRowBuffer + ((17 * 2) & 3) + 2, _UnrolledRowWrites - (14 * 4)
+.dw GSE_NATRowBuffer + ((18 * 2) & 3) + 2, _UnrolledRowWrites - (13 * 4)
+.dw GSE_NATRowBuffer + ((19 * 2) & 3) + 2, _UnrolledRowWrites - (12 * 4)
+.dw GSE_NATRowBuffer + ((20 * 2) & 3) + 2, _UnrolledRowWrites - (11 * 4)
+.dw GSE_NATRowBuffer + ((21 * 2) & 3) + 2, _UnrolledRowWrites - (10 * 4)
+.dw GSE_NATRowBuffer + ((22 * 2) & 3) + 2, _UnrolledRowWrites - (09 * 4)
+.dw GSE_NATRowBuffer + ((23 * 2) & 3) + 2, _UnrolledRowWrites - (08 * 4)
+.dw GSE_NATRowBuffer + ((24 * 2) & 3) + 2, _UnrolledRowWrites - (07 * 4)
+.dw GSE_NATRowBuffer + ((25 * 2) & 3) + 2, _UnrolledRowWrites - (06 * 4)
+.dw GSE_NATRowBuffer + ((26 * 2) & 3) + 2, _UnrolledRowWrites - (05 * 4)
+.dw GSE_NATRowBuffer + ((27 * 2) & 3) + 2, _UnrolledRowWrites - (04 * 4)
+.dw GSE_NATRowBuffer + ((28 * 2) & 3) + 2, _UnrolledRowWrites - (03 * 4)
+.dw GSE_NATRowBuffer + ((29 * 2) & 3) + 2, _UnrolledRowWrites - (02 * 4)
+.dw GSE_NATRowBuffer + ((30 * 2) & 3) + 2, _UnrolledRowWrites - (01 * 4)
+.dw GSE_NATRowBuffer + ((31 * 2) & 3) + 2, _UnrolledRowWrites - (00 * 4)
+.dw GSE_NATRowBuffer + (00 * 2) + ((00 * 2) & 3), _UnrolledRowWrites - (01 * 4)
+.dw GSE_NATRowBuffer + (01 * 2) + ((01 * 2) & 3), _UnrolledRowWrites - (02 * 4)
+.dw GSE_NATRowBuffer + (02 * 2) + ((02 * 2) & 3), _UnrolledRowWrites - (03 * 4)
+.dw GSE_NATRowBuffer + (03 * 2) + ((03 * 2) & 3), _UnrolledRowWrites - (04 * 4)
+.dw GSE_NATRowBuffer + (04 * 2) + ((04 * 2) & 3), _UnrolledRowWrites - (05 * 4)
+.dw GSE_NATRowBuffer + (05 * 2) + ((05 * 2) & 3), _UnrolledRowWrites - (06 * 4)
+.dw GSE_NATRowBuffer + (06 * 2) + ((06 * 2) & 3), _UnrolledRowWrites - (07 * 4)
+.dw GSE_NATRowBuffer + (07 * 2) + ((07 * 2) & 3), _UnrolledRowWrites - (08 * 4)
+.dw GSE_NATRowBuffer + (08 * 2) + ((08 * 2) & 3), _UnrolledRowWrites - (09 * 4)
+.dw GSE_NATRowBuffer + (09 * 2) + ((09 * 2) & 3), _UnrolledRowWrites - (10 * 4)
+.dw GSE_NATRowBuffer + (10 * 2) + ((10 * 2) & 3), _UnrolledRowWrites - (11 * 4)
+.dw GSE_NATRowBuffer + (11 * 2) + ((11 * 2) & 3), _UnrolledRowWrites - (12 * 4)
+.dw GSE_NATRowBuffer + (12 * 2) + ((12 * 2) & 3), _UnrolledRowWrites - (13 * 4)
+.dw GSE_NATRowBuffer + (13 * 2) + ((13 * 2) & 3), _UnrolledRowWrites - (14 * 4)
+.dw GSE_NATRowBuffer + (14 * 2) + ((14 * 2) & 3), _UnrolledRowWrites - (15 * 4)
+.dw GSE_NATRowBuffer + (15 * 2) + ((15 * 2) & 3), _UnrolledRowWrites - (16 * 4)
+.dw GSE_NATRowBuffer + (16 * 2) + ((16 * 2) & 3), _UnrolledRowWrites - (17 * 4)
+.dw GSE_NATRowBuffer + (17 * 2) + ((17 * 2) & 3), _UnrolledRowWrites - (18 * 4)
+.dw GSE_NATRowBuffer + (18 * 2) + ((18 * 2) & 3), _UnrolledRowWrites - (19 * 4)
+.dw GSE_NATRowBuffer + (19 * 2) + ((19 * 2) & 3), _UnrolledRowWrites - (20 * 4)
+.dw GSE_NATRowBuffer + (20 * 2) + ((20 * 2) & 3), _UnrolledRowWrites - (21 * 4)
+.dw GSE_NATRowBuffer + (21 * 2) + ((21 * 2) & 3), _UnrolledRowWrites - (22 * 4)
+.dw GSE_NATRowBuffer + (22 * 2) + ((22 * 2) & 3), _UnrolledRowWrites - (23 * 4)
+.dw GSE_NATRowBuffer + (23 * 2) + ((23 * 2) & 3), _UnrolledRowWrites - (24 * 4)
+.dw GSE_NATRowBuffer + (24 * 2) + ((24 * 2) & 3), _UnrolledRowWrites - (25 * 4)
+.dw GSE_NATRowBuffer + (25 * 2) + ((25 * 2) & 3), _UnrolledRowWrites - (26 * 4)
+.dw GSE_NATRowBuffer + (26 * 2) + ((26 * 2) & 3), _UnrolledRowWrites - (27 * 4)
+.dw GSE_NATRowBuffer + (27 * 2) + ((27 * 2) & 3), _UnrolledRowWrites - (28 * 4)
+.dw GSE_NATRowBuffer + (28 * 2) + ((28 * 2) & 3), _UnrolledRowWrites - (29 * 4)
+.dw GSE_NATRowBuffer + (29 * 2) + ((29 * 2) & 3), _UnrolledRowWrites - (30 * 4)
+.dw GSE_NATRowBuffer + (30 * 2) + ((30 * 2) & 3), _UnrolledRowWrites - (31 * 4)
+.dw GSE_NATRowBuffer + (31 * 2) + ((31 * 2) & 3), _UnrolledRowWrites - (32 * 4)                            
+                            
+                            
+  
+    
+/*
+ * == LookUp Table for Column Updates.
+ * 
+ * Column Updates are split in two. 
+ * - First is from top of window (as seen on screen)
+ * - Second is from top of Nametable (as seen in vram)
+ * 
+ * This table contains location in buffer to start write and 
+ * a jump address to unrolled vdp column update code representing
+ * number of writes required for each update.
+ */                        
+GSE_LUTColumnUpdate:
+.dw GSE_NATColumnBuffer + ((00 * 2) & 3), _UnrolledColumnWrites - (28 * 11)
+.dw GSE_NATColumnBuffer + ((01 * 2) & 3), _UnrolledColumnWrites - (27 * 11)
+.dw GSE_NATColumnBuffer + ((02 * 2) & 3), _UnrolledColumnWrites - (26 * 11)
+.dw GSE_NATColumnBuffer + ((03 * 2) & 3), _UnrolledColumnWrites - (25 * 11)
+.dw GSE_NATColumnBuffer + ((04 * 2) & 3), _UnrolledColumnWrites - (24 * 11)
+.dw GSE_NATColumnBuffer + ((05 * 2) & 3), _UnrolledColumnWrites - (23 * 11)
+.dw GSE_NATColumnBuffer + ((06 * 2) & 3), _UnrolledColumnWrites - (22 * 11)
+.dw GSE_NATColumnBuffer + ((07 * 2) & 3), _UnrolledColumnWrites - (21 * 11)
+.dw GSE_NATColumnBuffer + ((08 * 2) & 3), _UnrolledColumnWrites - (20 * 11)
+.dw GSE_NATColumnBuffer + ((09 * 2) & 3), _UnrolledColumnWrites - (19 * 11)
+.dw GSE_NATColumnBuffer + ((10 * 2) & 3), _UnrolledColumnWrites - (18 * 11)
+.dw GSE_NATColumnBuffer + ((11 * 2) & 3), _UnrolledColumnWrites - (17 * 11)
+.dw GSE_NATColumnBuffer + ((12 * 2) & 3), _UnrolledColumnWrites - (16 * 11)
+.dw GSE_NATColumnBuffer + ((13 * 2) & 3), _UnrolledColumnWrites - (15 * 11)
+.dw GSE_NATColumnBuffer + ((14 * 2) & 3), _UnrolledColumnWrites - (14 * 11)
+.dw GSE_NATColumnBuffer + ((15 * 2) & 3), _UnrolledColumnWrites - (13 * 11)
+.dw GSE_NATColumnBuffer + ((16 * 2) & 3), _UnrolledColumnWrites - (12 * 11)
+.dw GSE_NATColumnBuffer + ((17 * 2) & 3), _UnrolledColumnWrites - (11 * 11)
+.dw GSE_NATColumnBuffer + ((18 * 2) & 3), _UnrolledColumnWrites - (10 * 11)
+.dw GSE_NATColumnBuffer + ((19 * 2) & 3), _UnrolledColumnWrites - (09 * 11)
+.dw GSE_NATColumnBuffer + ((20 * 2) & 3), _UnrolledColumnWrites - (08 * 11)
+.dw GSE_NATColumnBuffer + ((21 * 2) & 3), _UnrolledColumnWrites - (07 * 11)
+.dw GSE_NATColumnBuffer + ((22 * 2) & 3), _UnrolledColumnWrites - (06 * 11)
+.dw GSE_NATColumnBuffer + ((23 * 2) & 3), _UnrolledColumnWrites - (05 * 11)
+.dw GSE_NATColumnBuffer + ((24 * 2) & 3), _UnrolledColumnWrites - (04 * 11)
+.dw GSE_NATColumnBuffer + ((25 * 2) & 3), _UnrolledColumnWrites - (03 * 11)
+.dw GSE_NATColumnBuffer + ((26 * 2) & 3), _UnrolledColumnWrites - (02 * 11)
+.dw GSE_NATColumnBuffer + ((27 * 2) & 3), _UnrolledColumnWrites - (01 * 11)
+
+.dw GSE_NATColumnBuffer + (00 * 2) + ((00 * 2) & 3), _UnrolledColumnWrites - (00 * 11)
+.dw GSE_NATColumnBuffer + (01 * 2) + ((01 * 2) & 3), _UnrolledColumnWrites - (01 * 11)
+.dw GSE_NATColumnBuffer + (02 * 2) + ((02 * 2) & 3), _UnrolledColumnWrites - (02 * 11)
+.dw GSE_NATColumnBuffer + (03 * 2) + ((03 * 2) & 3), _UnrolledColumnWrites - (03 * 11)
+.dw GSE_NATColumnBuffer + (04 * 2) + ((04 * 2) & 3), _UnrolledColumnWrites - (04 * 11)
+.dw GSE_NATColumnBuffer + (05 * 2) + ((05 * 2) & 3), _UnrolledColumnWrites - (05 * 11)
+.dw GSE_NATColumnBuffer + (06 * 2) + ((06 * 2) & 3), _UnrolledColumnWrites - (06 * 11)
+.dw GSE_NATColumnBuffer + (07 * 2) + ((07 * 2) & 3), _UnrolledColumnWrites - (07 * 11)
+.dw GSE_NATColumnBuffer + (08 * 2) + ((08 * 2) & 3), _UnrolledColumnWrites - (08 * 11)
+.dw GSE_NATColumnBuffer + (09 * 2) + ((09 * 2) & 3), _UnrolledColumnWrites - (09 * 11)
+.dw GSE_NATColumnBuffer + (10 * 2) + ((10 * 2) & 3), _UnrolledColumnWrites - (10 * 11)
+.dw GSE_NATColumnBuffer + (11 * 2) + ((11 * 2) & 3), _UnrolledColumnWrites - (11 * 11)
+.dw GSE_NATColumnBuffer + (12 * 2) + ((12 * 2) & 3), _UnrolledColumnWrites - (12 * 11)
+.dw GSE_NATColumnBuffer + (13 * 2) + ((13 * 2) & 3), _UnrolledColumnWrites - (13 * 11)
+.dw GSE_NATColumnBuffer + (14 * 2) + ((14 * 2) & 3), _UnrolledColumnWrites - (14 * 11)
+.dw GSE_NATColumnBuffer + (15 * 2) + ((15 * 2) & 3), _UnrolledColumnWrites - (15 * 11)
+.dw GSE_NATColumnBuffer + (16 * 2) + ((16 * 2) & 3), _UnrolledColumnWrites - (16 * 11)
+.dw GSE_NATColumnBuffer + (17 * 2) + ((17 * 2) & 3), _UnrolledColumnWrites - (17 * 11)
+.dw GSE_NATColumnBuffer + (18 * 2) + ((18 * 2) & 3), _UnrolledColumnWrites - (18 * 11)
+.dw GSE_NATColumnBuffer + (19 * 2) + ((19 * 2) & 3), _UnrolledColumnWrites - (19 * 11)
+.dw GSE_NATColumnBuffer + (20 * 2) + ((20 * 2) & 3), _UnrolledColumnWrites - (20 * 11)
+.dw GSE_NATColumnBuffer + (21 * 2) + ((21 * 2) & 3), _UnrolledColumnWrites - (21 * 11)
+.dw GSE_NATColumnBuffer + (22 * 2) + ((22 * 2) & 3), _UnrolledColumnWrites - (22 * 11)
+.dw GSE_NATColumnBuffer + (23 * 2) + ((23 * 2) & 3), _UnrolledColumnWrites - (23 * 11)
+.dw GSE_NATColumnBuffer + (24 * 2) + ((24 * 2) & 3), _UnrolledColumnWrites - (24 * 11)
+.dw GSE_NATColumnBuffer + (25 * 2) + ((25 * 2) & 3), _UnrolledColumnWrites - (25 * 11)
+.dw GSE_NATColumnBuffer + (26 * 2) + ((26 * 2) & 3), _UnrolledColumnWrites - (26 * 11)
+.dw GSE_NATColumnBuffer + (27 * 2) + ((27 * 2) & 3), _UnrolledColumnWrites - (27 * 11)                            
 
 
 
+; == MOD table to speed identifying VDPNametable loc for metatile updates.
+; - Table is %28 but only for even numbers.
+; - Each row represents 1x192 height (width does not matter!).
+; - Comment / uncomment depending on your maps...
+;   * for stages that max 1 screen tall you need 1 row.
+;   * for stages that max 4 screens tall you need 4 rows, etc.                
+GSE_ModTable:
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
+.db $F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD
 
+                            
 .ends
 
-
-
-.bank 0 slot 0
-.org $0100
-.section "eeee" force
-
-ntRowUpdateTable1:
-.dw GSE_NATRowBuffer + ((00 * 2) & 3) + 2, rowNTWritesEnd - (31 * 4)
-.dw GSE_NATRowBuffer + ((01 * 2) & 3) + 2, rowNTWritesEnd - (30 * 4)
-.dw GSE_NATRowBuffer + ((02 * 2) & 3) + 2, rowNTWritesEnd - (29 * 4)
-.dw GSE_NATRowBuffer + ((03 * 2) & 3) + 2, rowNTWritesEnd - (28 * 4)
-.dw GSE_NATRowBuffer + ((04 * 2) & 3) + 2, rowNTWritesEnd - (27 * 4)
-.dw GSE_NATRowBuffer + ((05 * 2) & 3) + 2, rowNTWritesEnd - (26 * 4)
-.dw GSE_NATRowBuffer + ((06 * 2) & 3) + 2, rowNTWritesEnd - (25 * 4)
-.dw GSE_NATRowBuffer + ((07 * 2) & 3) + 2, rowNTWritesEnd - (24 * 4)
-.dw GSE_NATRowBuffer + ((08 * 2) & 3) + 2, rowNTWritesEnd - (23 * 4)
-.dw GSE_NATRowBuffer + ((09 * 2) & 3) + 2, rowNTWritesEnd - (22 * 4)
-.dw GSE_NATRowBuffer + ((10 * 2) & 3) + 2, rowNTWritesEnd - (21 * 4)
-.dw GSE_NATRowBuffer + ((11 * 2) & 3) + 2, rowNTWritesEnd - (20 * 4)
-.dw GSE_NATRowBuffer + ((12 * 2) & 3) + 2, rowNTWritesEnd - (19 * 4)
-.dw GSE_NATRowBuffer + ((13 * 2) & 3) + 2, rowNTWritesEnd - (18 * 4)
-.dw GSE_NATRowBuffer + ((14 * 2) & 3) + 2, rowNTWritesEnd - (17 * 4)
-.dw GSE_NATRowBuffer + ((15 * 2) & 3) + 2, rowNTWritesEnd - (16 * 4)
-.dw GSE_NATRowBuffer + ((16 * 2) & 3) + 2, rowNTWritesEnd - (15 * 4)
-.dw GSE_NATRowBuffer + ((17 * 2) & 3) + 2, rowNTWritesEnd - (14 * 4)
-.dw GSE_NATRowBuffer + ((18 * 2) & 3) + 2, rowNTWritesEnd - (13 * 4)
-.dw GSE_NATRowBuffer + ((19 * 2) & 3) + 2, rowNTWritesEnd - (12 * 4)
-.dw GSE_NATRowBuffer + ((20 * 2) & 3) + 2, rowNTWritesEnd - (11 * 4)
-.dw GSE_NATRowBuffer + ((21 * 2) & 3) + 2, rowNTWritesEnd - (10 * 4)
-.dw GSE_NATRowBuffer + ((22 * 2) & 3) + 2, rowNTWritesEnd - (09 * 4)
-.dw GSE_NATRowBuffer + ((23 * 2) & 3) + 2, rowNTWritesEnd - (08 * 4)
-.dw GSE_NATRowBuffer + ((24 * 2) & 3) + 2, rowNTWritesEnd - (07 * 4)
-.dw GSE_NATRowBuffer + ((25 * 2) & 3) + 2, rowNTWritesEnd - (06 * 4)
-.dw GSE_NATRowBuffer + ((26 * 2) & 3) + 2, rowNTWritesEnd - (05 * 4)
-.dw GSE_NATRowBuffer + ((27 * 2) & 3) + 2, rowNTWritesEnd - (04 * 4)
-.dw GSE_NATRowBuffer + ((28 * 2) & 3) + 2, rowNTWritesEnd - (03 * 4)
-.dw GSE_NATRowBuffer + ((29 * 2) & 3) + 2, rowNTWritesEnd - (02 * 4)
-.dw GSE_NATRowBuffer + ((30 * 2) & 3) + 2, rowNTWritesEnd - (01 * 4)
-.dw GSE_NATRowBuffer + ((31 * 2) & 3) + 2, rowNTWritesEnd - (00 * 4)
-
-; NOTE I DIDNT CHANGE FIRST ENTRY SINCE I NO LONGER USE IT!!!
-.dw GSE_NATRowBuffer + (00 * 2) + ((00 * 2) & 3), rowNTWritesEnd - (01 * 4)
-.dw GSE_NATRowBuffer + (01 * 2) + ((01 * 2) & 3), rowNTWritesEnd - (02 * 4)
-.dw GSE_NATRowBuffer + (02 * 2) + ((02 * 2) & 3), rowNTWritesEnd - (03 * 4)
-.dw GSE_NATRowBuffer + (03 * 2) + ((03 * 2) & 3), rowNTWritesEnd - (04 * 4)
-.dw GSE_NATRowBuffer + (04 * 2) + ((04 * 2) & 3), rowNTWritesEnd - (05 * 4)
-.dw GSE_NATRowBuffer + (05 * 2) + ((05 * 2) & 3), rowNTWritesEnd - (06 * 4)
-.dw GSE_NATRowBuffer + (06 * 2) + ((06 * 2) & 3), rowNTWritesEnd - (07 * 4)
-.dw GSE_NATRowBuffer + (07 * 2) + ((07 * 2) & 3), rowNTWritesEnd - (08 * 4)
-.dw GSE_NATRowBuffer + (08 * 2) + ((08 * 2) & 3), rowNTWritesEnd - (09 * 4)
-.dw GSE_NATRowBuffer + (09 * 2) + ((09 * 2) & 3), rowNTWritesEnd - (10 * 4)
-.dw GSE_NATRowBuffer + (10 * 2) + ((10 * 2) & 3), rowNTWritesEnd - (11 * 4)
-.dw GSE_NATRowBuffer + (11 * 2) + ((11 * 2) & 3), rowNTWritesEnd - (12 * 4)
-.dw GSE_NATRowBuffer + (12 * 2) + ((12 * 2) & 3), rowNTWritesEnd - (13 * 4)
-.dw GSE_NATRowBuffer + (13 * 2) + ((13 * 2) & 3), rowNTWritesEnd - (14 * 4)
-.dw GSE_NATRowBuffer + (14 * 2) + ((14 * 2) & 3), rowNTWritesEnd - (15 * 4)
-.dw GSE_NATRowBuffer + (15 * 2) + ((15 * 2) & 3), rowNTWritesEnd - (16 * 4)
-.dw GSE_NATRowBuffer + (16 * 2) + ((16 * 2) & 3), rowNTWritesEnd - (17 * 4)
-.dw GSE_NATRowBuffer + (17 * 2) + ((17 * 2) & 3), rowNTWritesEnd - (18 * 4)
-.dw GSE_NATRowBuffer + (18 * 2) + ((18 * 2) & 3), rowNTWritesEnd - (19 * 4)
-.dw GSE_NATRowBuffer + (19 * 2) + ((19 * 2) & 3), rowNTWritesEnd - (20 * 4)
-.dw GSE_NATRowBuffer + (20 * 2) + ((20 * 2) & 3), rowNTWritesEnd - (21 * 4)
-.dw GSE_NATRowBuffer + (21 * 2) + ((21 * 2) & 3), rowNTWritesEnd - (22 * 4)
-.dw GSE_NATRowBuffer + (22 * 2) + ((22 * 2) & 3), rowNTWritesEnd - (23 * 4)
-.dw GSE_NATRowBuffer + (23 * 2) + ((23 * 2) & 3), rowNTWritesEnd - (24 * 4)
-.dw GSE_NATRowBuffer + (24 * 2) + ((24 * 2) & 3), rowNTWritesEnd - (25 * 4)
-.dw GSE_NATRowBuffer + (25 * 2) + ((25 * 2) & 3), rowNTWritesEnd - (26 * 4)
-.dw GSE_NATRowBuffer + (26 * 2) + ((26 * 2) & 3), rowNTWritesEnd - (27 * 4)
-.dw GSE_NATRowBuffer + (27 * 2) + ((27 * 2) & 3), rowNTWritesEnd - (28 * 4)
-.dw GSE_NATRowBuffer + (28 * 2) + ((28 * 2) & 3), rowNTWritesEnd - (29 * 4)
-.dw GSE_NATRowBuffer + (29 * 2) + ((29 * 2) & 3), rowNTWritesEnd - (30 * 4)
-.dw GSE_NATRowBuffer + (30 * 2) + ((30 * 2) & 3), rowNTWritesEnd - (31 * 4)
-.dw GSE_NATRowBuffer + (31 * 2) + ((31 * 2) & 3), rowNTWritesEnd - (32 * 4)
-
-
-                            .repeat 32
-                            outi
-                            outi
-                            .endr
-rowNTWritesEnd:            ret
-
-.ends

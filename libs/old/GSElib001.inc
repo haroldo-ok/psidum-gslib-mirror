@@ -883,7 +883,7 @@ _MetatileColumnUnroll:      ld b, 16
 
 ; == MOD table to speed identifying VDPNametable loc for metatile updates.
 ; - Table is %28 but only for even numbers.
-; - Each row represents 1x256 height (width does not matter!).
+; - Each row represents 1x192 height (width does not matter!).
 ; - Comment / uncomment depending on your maps...
 ;   * for stages that max 1 screen tall you need 1 row.
 ;   * for stages that max 4 screens tall you need 4 rows, etc.

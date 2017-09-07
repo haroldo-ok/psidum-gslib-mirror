@@ -16,7 +16,7 @@ banks 4
 .endro
 
 
-.sdsctag 0.1,"SCE", "Generic Scroll Engine","Psidum" 
+.sdsctag 0.1,"GSE", "Generic Scroll Engine","Psidum" 
 
 
 
@@ -25,13 +25,13 @@ banks 4
 
 ; stack pointer @ $dff0 < - space given for 60 16 bit entries.
 ; interrupt handler @ de7f > - 256 bytes given.
-.define interuptHandler     $DE80
-.define coreSupport         $DE7F
-.define scratchPad          $DE00 ; used as generic ram space for various routines! 64 bytes
-.define smcRAMJump          $DDFD
-.define effectRAM           $DDFC ; effects will use memory $DDFC descending
+.define InteruptHandler     $DE80
+.define CoreSupport         $DE7F
+.define ScratchPad          $DE00 ; used as generic ram space for various routines! 64 bytes
+.define RAMJump             $DDFD
+.define EffectRAM           $DDFC ; effects will use memory $DDFC descending
 
-.enum coreSupport desc      ; general hardware
+.enum CoreSupport desc      ; general hardware
     pageBuffer1 db          ; paging (everdrive bug on slot 0. only 1 & 2)
     pageBuffer2 db
     stackSwapBufffer dw     ; used to store stack location when using stack for other things.
@@ -97,10 +97,6 @@ InitializeSMS:              ld sp, $DFF0                       ; set up stack po
                             ld de, 0
                             call GSE_PositionWindow
                             
-;                            ld a, -8
-;                            ld (GSE_XUpdateRequest), a
-;                            call GSEPreProcessUpdate
-;                            call ntColumnUpdate
                             
                             xor a
                             ld (GSE_XUpdateRequest), a
@@ -109,16 +105,42 @@ InitializeSMS:              ld sp, $DFF0                       ; set up stack po
                             ; == write interrupt handler to ram
                             LoadInterruptHandler genericPushInterrupt, genericPushInterruptEnd - genericPushInterrupt  
                             
+                            call GSE_RefreshScreen
+                            
 --:                         ld hl, _INT
                             push hl
                             
                             
-;                            ld a, 1
-;                            ld (GSE_XUpdateRequest), a
-;                            ld a, -8
-;                            ld (GSE_YUpdateRequest), a
-                            call GSEPreProcessUpdate
-                            call processScrollUpdates
+
+                            call GSE_ActiveDisplayRoutine
+                            
+                            
+                             
+;                            ld hl, 24
+;                            ld de, 24
+;                            call GSE_MetatileLookup
+;                            
+;                            ex af, af'
+;                            ld a, $38
+;                            ld (hl), a
+;                            ;inc a
+;                            ex af, af'
+;                            call GSE_MetatileUpdate
+;                            
+;                            
+;                            ld hl, 65  
+;                            ld de, 65
+;                            call GSE_MetatileLookup
+;                            
+;                            ex af, af'
+;                            ld a, $38
+;                            ld (hl), a
+;                            ;inc a
+;                            ex af, af'
+;                            call GSE_MetatileUpdate
+                            
+                            
+                            
                             
                             
                             
@@ -131,9 +153,8 @@ InitializeSMS:              ld sp, $DFF0                       ; set up stack po
                             -: halt
                             jr -
                             
-_INT:                       call ntColumnUpdate
-                            call ntRowUpdate
-                            
+_INT:                       call GSE_VBlankRoutine
+                            di
                             
                             ld a, (GSE_X)
                             neg
@@ -200,13 +221,16 @@ _joypad_test_down1:           bit 1, d                            ; condition ::
 _joypad_test_end:            
                             
                             
-                            jr --
+                            jp --
                                 
                             
                             -: halt
                             jr -
 
+.ends
 
+.bank 1 slot 1
+.section "data" free
 Scrolltable:
 .dw $0900
 .dw $0040
@@ -324,7 +348,6 @@ MetatilesEnd:
 .bank 1 slot 1
 .section "tiles" free
 tiles:
-
 .db $0D, $0D, $12, $E0, $18, $1A, $47, $80, $30, $B5, $8F, $00, $60, $6E, $1F, $00, $00, $17, $BF, $00, $A0, $AA, $5F, $00, $C0, $D5, $3F, $00, $A0, $AA, $5F, $00
 .db $B0, $B0, $40, $07, $08, $48, $F2, $01, $04, $05, $F9, $00, $0A, $AA, $F4, $00, $02, $53, $FD, $00, $0A, $8A, $F4, $00, $05, $25, $FA, $00, $05, $05, $FA, $00
 .db $7F, $FF, $FF, $00, $FF, $FF, $FF, $00, $FD, $FF, $FF, $00, $FF, $FF, $FF, $00, $FF, $FF, $FF, $00, $BF, $FF, $FF, $00, $FF, $FF, $FF, $00, $FB, $FF, $FF, $00
@@ -405,8 +428,8 @@ tiles:
 .db $00, $00, $00, $00, $00, $00, $00, $00, $FF, $B3, $00, $FF, $FF, $CC, $00, $FF, $FF, $BB, $00, $FF, $FF, $DC, $00, $FF, $FF, $73, $00, $FF, $FF, $47, $00, $FF
 tilesEnd:
 
-palette:
 
+palette:
 .db $00, $01, $02, $04, $09, $2A, $2D, $0E, $2F, $34, $17, $38, $1B, $3F
 paletteEnd:
 

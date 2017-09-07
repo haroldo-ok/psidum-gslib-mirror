@@ -151,7 +151,7 @@
 .macro LoadInterruptHandler 
 
                             ld hl, \1
-                            ld de, interuptHandler
+                            ld de, InteruptHandler
                             ld bc, \2
                             ldir
                             
@@ -201,7 +201,7 @@
 
 .macro InitaliseGeneral
                             ld a, $C3                   ; Put jp instruction in ram (following two bytes are smc address)
-                            ld (smcRAMJump), a
+                            ld (RAMJump), a
 .endm
 
 .bank 0 slot 0
