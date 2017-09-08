@@ -585,7 +585,6 @@ GSE_MetatileUpdate:         ; == Y >> 4
  * - Checks boundary crosses and updates pointers as required.
  * 
  * NOTES: Somewhat Optimized.
- * - Remove use of 'i' register for c compatibility.
  */                              
 GSE_ActiveDisplayRoutine:   ; == Initialize
                             ld iy, GSE_GENERAL_RAM

@@ -116,9 +116,13 @@ InitializeSMS:              ld sp, $DFF0                       ; set up stack po
                             
                             
                              
-;                            ld hl, 24
-;                            ld de, 24
-;                            call GSE_MetatileLookup
+                            ld hl, 24
+                            ld de, 24
+                            call GSE_MetatileLookup
+                            
+                            ld hl, 24
+                            ld de, 24
+                            call GSE_TileLookup
 ;                            
 ;                            ex af, af'
 ;                            ld a, $38
