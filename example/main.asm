@@ -7,7 +7,7 @@ slot 1 $4000
 slot 2 $8000
 slot 3 $c000
 .endme
- 
+  
 
 .rombankmap
 bankstotal 4
