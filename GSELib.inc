@@ -15,19 +15,19 @@
 
 .section "GSELib" free
 
-.define GSE_GENERAL_RAM                 $D000       ; location of general purpose ram
-.define GSE_METATILE_TABLE              $8000       ; location of metatile table aligned to 2k boundary
-.define GSE_METATILE_TABLE_HIGH_BYTE    $80
+.define GSE_GENERAL_RAM                 $C000       ; location of general purpose ram
+.define GSE_METATILE_TABLE              $4000       ; location of metatile table aligned to 2k boundary
+.define GSE_METATILE_TABLE_HIGH_BYTE    $40
 .define GSE_HORIZONTAL_ADDITION         $0F         ; addition value required to push scrolltable pointer to right size of screen 
 .define GSE_NAMETABLE_BASE_ADDRESS      $7800       ; base address of nametable in vram including write bit set (14) 
 .define GSE_NAMETABLE_HIGH_BYTE_START   $78
 .define GSE_NAMETABLE_HIGH_BYTE_END     $7F  
-.define GSE_NAMETABLE_WIDTH_IN_TILES    $40
+.define GSE_NAMETABLE_WIDTH_IN_BYTES    $40
 
 .enum GSE_GENERAL_RAM asc
         
         GSE_ScrolltableLoc              dw     
-        GSE_MetatileLUTLoc              dw          ; note: must be on 2k boundary!
+        GSE_MetatileLUTLoc              dw          
         
         ; == Following is stored in scrolltable header.
         GSE_ScrolltableSize             dw
@@ -69,8 +69,12 @@
 /*
  * == Initializes GSElib for rendering of new map
  * @in hl: Scrolltable Location
+ * @in de: MetatileLUTLoc
  */
-GSE_InitaliseMap:           ; == Copy Scrolltable Header to Ram (its structure is identical to enum)
+GSE_InitaliseMap:           ; == Store GSE_MetatileLUTLoc
+                            ld (GSE_MetatileLUTLoc), de
+
+                            ; == Copy Scrolltable Header to Ram (its structure is identical to enum)
                             ld de, GSE_GENERAL_RAM + 4
                             ld bc, 13
                             ldir
@@ -78,12 +82,7 @@ GSE_InitaliseMap:           ; == Copy Scrolltable Header to Ram (its structure i
                             
                             ; == Store GSE_ScrolltableLoc (ldir will have pushed past header to actual table)
                             ld (GSE_ScrolltableLoc), hl
-                            
-                            
-                            ; == Store GSE_MetatileLUTLoc
-                            ld de, (GSE_ScrolltableSize)
-                            add hl, de
-                            ld (GSE_MetatileLUTLoc), hl
+
                             
                             ld a, (GSE_OptionByte)              ; bit 0 set = Metatile LUT Required.
                             bit 0, a                            ; proceed only if set
@@ -110,6 +109,8 @@ GSE_InitaliseMap:           ; == Copy Scrolltable Header to Ram (its structure i
                             
                             xor a
                             ld (GSE_MetatileUpdatesCount), a
+                            ld (GSE_XUpdateRequest), a
+                            ld (GSE_YUpdateRequest), a
                             
                             ; == Set up GSE_RAMJump
                             ld a, $C3
@@ -331,7 +332,7 @@ _RefreshLoop:               ; == Set VDP Pointer at Start of Row
                             ; **** Prep for Next Write.
                             ; == Push VDP Nametable address to next Row.
                             ld hl, (GSE_NametableUpdateRow)
-                            ld de, GSE_NAMETABLE_WIDTH_IN_TILES
+                            ld de, GSE_NAMETABLE_WIDTH_IN_BYTES
                             add hl, de
                             ld (GSE_NametableUpdateRow), hl
                             
@@ -1128,6 +1129,20 @@ _VBlankCleanup:             ; == Reset RAM Variables for next Active Display.
                             
                             xor a
                             ld (GSE_MetatileUpdatesCount), a
+                            ld (GSE_XUpdateRequest), a
+                            ld (GSE_YUpdateRequest), a
+                            
+                            ; == Update Screen X,Y Scroll
+                            ld a, (GSE_X)
+                            neg
+                            out (VDP_CONTROL_PORT), a
+                            ld a, $88
+                            out (VDP_CONTROL_PORT), a
+                            
+                            ld a, (GSE_Y224)
+                            out (VDP_CONTROL_PORT), a
+                            ld a, $89
+                            out (VDP_CONTROL_PORT), a 
                             
                             ret
                               
