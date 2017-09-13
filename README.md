@@ -15,12 +15,14 @@ General purpose 8 way scrolling engine for use in games or demos. Specifications
 ### How do I get set up? ###
 
 In GSELib:
+
  * Set GSE_GENERAL_RAM to ram location for library (262 bytes by default)
  * Default location of Metatiles (on rom) is $4000. If another location is needed change GSE_METATILE_TABLE and GSE_METATILE_TABLE_HIGH_BYTE to desired location (must be on 2k boundary)
  * Default Location of Nametable (on vdp) is $7800. If another location is needed change GSE_NAMETABLE_BASE_ADDRESS, GSE_NAMETABLE_HIGH_BYTE_START, GSE_NAMETABLE_HIGH_BYTE_END
  * Do not modify remaining defines unless you know what you are doing (you don't!)
  
 In Your Code:
+
  * Include Library In Code.
  * Load tiles and palette to VDP.
  * Call GSE_InitaliseMap with (hl = Scrolltable Data, de = ram location for lookup table)
