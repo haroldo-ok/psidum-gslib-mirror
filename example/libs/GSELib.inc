@@ -18,11 +18,11 @@
 .define GSE_GENERAL_RAM                 $C000       ; location of general purpose ram
 .define GSE_METATILE_TABLE              $4000       ; location of metatile table aligned to 2k boundary
 .define GSE_METATILE_TABLE_HIGH_BYTE    $40
-.define GSE_HORIZONTAL_ADDITION         $0F         ; addition value required to push scrolltable pointer to right size of screen 
 .define GSE_NAMETABLE_BASE_ADDRESS      $7800       ; base address of nametable in vram including write bit set (14) 
 .define GSE_NAMETABLE_HIGH_BYTE_START   $78
 .define GSE_NAMETABLE_HIGH_BYTE_END     $7F  
 .define GSE_NAMETABLE_WIDTH_IN_BYTES    $40
+.define GSE_HORIZONTAL_ADDITION         $0F         ; addition value required to push scrolltable pointer to right size of screen 
 
 .enum GSE_GENERAL_RAM asc
         
