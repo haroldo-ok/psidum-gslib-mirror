@@ -92,7 +92,7 @@ InitializeSMS:              ld sp, $DFF0                       ; set up stack po
                             ; DE = RAM Location to generate LUT for this Map (LUT used to speed metatile lookups).
                             ld hl, Scrolltable
                             ld de, $D000 
-                            call GSE_InitaliseMap
+                            call GSE_InitialiseMap
                             
                             
                             ; == Position Window at location (0,0) Top left most.

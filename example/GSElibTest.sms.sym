@@ -13,7 +13,7 @@
 0000:0d46 genericPushInterruptEnd
 0000:001c VDPInitData
 0000:002e VDPInitDataEnd
-0000:0068 GSE_InitaliseMap
+0000:0068 GSE_InitialiseMap
 0000:00b3 GSE_PositionWindow
 0000:011c GSE_RefreshScreen
 0000:013b _RefreshLoop

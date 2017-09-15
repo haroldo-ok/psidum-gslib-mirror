@@ -18,11 +18,11 @@
 .define GSE_GENERAL_RAM                 $C000       ; location of general purpose ram
 .define GSE_METATILE_TABLE              $4000       ; location of metatile table aligned to 2k boundary
 .define GSE_METATILE_TABLE_HIGH_BYTE    $40
+.define GSE_HORIZONTAL_ADDITION         $0F         ; addition value required to push scrolltable pointer to right size of screen 
 .define GSE_NAMETABLE_BASE_ADDRESS      $7800       ; base address of nametable in vram including write bit set (14) 
 .define GSE_NAMETABLE_HIGH_BYTE_START   $78
 .define GSE_NAMETABLE_HIGH_BYTE_END     $7F  
 .define GSE_NAMETABLE_WIDTH_IN_BYTES    $40
-.define GSE_HORIZONTAL_ADDITION         $0F         ; addition value required to push scrolltable pointer to right size of screen 
 
 .enum GSE_GENERAL_RAM asc
         
@@ -71,7 +71,7 @@
  * @in hl: Scrolltable Location
  * @in de: MetatileLUTLoc
  */
-GSE_InitaliseMap:           ; == Store GSE_MetatileLUTLoc
+GSE_InitialiseMap:          ; == Store GSE_MetatileLUTLoc
                             ld (GSE_MetatileLUTLoc), de
 
                             ; == Copy Scrolltable Header to Ram (its structure is identical to enum)
@@ -474,10 +474,16 @@ GSE_TileLookup:             ; == Create offset for within Metatile (which nameta
                             
                             
 
-; == Update user defined Metatile Entry to VDP.
-; This is used in cases where user knows the x,y, and array index of metatile to update.
-; Useful for animation type stuff.
-; NOTE: this is a more advanced feature that puts the onus on the coder to manage properly.
+/* == Update user defined Metatile Entry to VDP.
+* This is used in cases where user knows the x,y, and array index of metatile to update.
+* Useful for animation type stuff.
+* NOTE: this is a more advanced feature that puts the onus on the coder to manage properly.
+* 
+* @in hl: Y
+* @in de: X
+* 
+* @in bc: Srolltable Array Offset (pointing at entry to be updated)
+*/
  
 GSE_MetatileUpdateSpecific: ; == Populate Buffered Values with Custom Values.
                             ld (GSE_MetatileYBuffer), hl

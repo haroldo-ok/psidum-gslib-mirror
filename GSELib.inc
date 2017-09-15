@@ -71,7 +71,7 @@
  * @in hl: Scrolltable Location
  * @in de: MetatileLUTLoc
  */
-GSE_InitaliseMap:           ; == Store GSE_MetatileLUTLoc
+GSE_InitialiseMap:          ; == Store GSE_MetatileLUTLoc
                             ld (GSE_MetatileLUTLoc), de
 
                             ; == Copy Scrolltable Header to Ram (its structure is identical to enum)
@@ -474,10 +474,16 @@ GSE_TileLookup:             ; == Create offset for within Metatile (which nameta
                             
                             
 
-; == Update user defined Metatile Entry to VDP.
-; This is used in cases where user knows the x,y, and array index of metatile to update.
-; Useful for animation type stuff.
-; NOTE: this is a more advanced feature that puts the onus on the coder to manage properly.
+/* == Update user defined Metatile Entry to VDP.
+* This is used in cases where user knows the x,y, and array index of metatile to update.
+* Useful for animation type stuff.
+* NOTE: this is a more advanced feature that puts the onus on the coder to manage properly.
+* 
+* @in hl: Y
+* @in de: X
+* 
+* @in bc: Srolltable Array Offset (pointing at entry to be updated)
+*/
  
 GSE_MetatileUpdateSpecific: ; == Populate Buffered Values with Custom Values.
                             ld (GSE_MetatileYBuffer), hl
