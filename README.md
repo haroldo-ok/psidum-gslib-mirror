@@ -5,6 +5,7 @@ General Scroll Engine Library (GSELib)
 ### What is this repository for? ###
 
 General purpose 8 way scrolling engine for use in games or demos. Specifications include...
+
  * 16x16 pixel metatiles. 
  * 8 way scrolling. 
  * Supports tile and metatile lookup given an (x, y). 
