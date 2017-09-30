@@ -4,6 +4,7 @@
 == GSE_InitaliseMap
 @in hl: Scrolltable Location
 @in de: MetatileLUTLoc
+@in bc: MetatileTable Location
 
 Initialises engine for passed scrolltable. 
 
@@ -101,6 +102,38 @@ should be called whenever you desire scrolling.
 
 Writes buffered row, column, metatile updates to screen. It is safe to call this routine every vblank even if
 no changes are required.
+
+
+
+### Data Formats ###
+
+== Metatiles
+
+Metatiles are stored as raw Nametable entries in order left to right, top to bottom for a total of 4 entries 
+(8 bytes). Metatile index 0 is used to contain meta information for the table. Currently only first 3 bytes 
+are used internally. Feel free to append your own meta data in last 3 bytes. 
+
+Meta information is as follows (in same order as file format)...
+
+- (2 bytes) Length of metatile table in bytes 
+- (1 byte) Index of first non collision tile (used by my parsing tool).
+- remaining 5 bytes are free.
+
+
+
+== Scrolltable Data
+Scrolltable data is a representation of map using metatiles. Entries are stored as modified Metatile entries in
+order left to right, top to bottom. The modified metatile format is (metatile_id << 3) & 248) + ((metatile_id >> 5) & 7).
+
+Scrolltable contains a header before metatile entries. Header is 13 bytes long and is structured...
+ - (2 bytes) GSL_ScrolltableSize - size in bytes
+ - (2 bytes) GSL_WidthInMetatiles - width in metatile entries
+ - (2 bytes) GSL_HeightInMetatiles - height in metatile entries
+ - (2 bytes) GSL_WidthInPixels 
+ - (2 bytes) GSL_HeightInPixels
+ - (2 bytes) GSL_VerticalAddition - width in metatiles * 13
+ - (1 bytes) GSL_OptionByte (Lookups require generation of table, highest bit signals to generate table).
+
 
 
 

@@ -16,7 +16,7 @@ banks 4
 .endro
 
 
-.sdsctag 0.1,"GSE", "Generic Scroll Engine","Psidum" 
+.sdsctag 0.1,"GSL", "Generic Scroll Engine","Psidum" 
 
 
 
@@ -44,7 +44,7 @@ banks 4
 .include "core/interupts.inc"
 .include "core/generic_routines.inc"
 .include "core/macros.inc"
-.include "libs/GSElib.inc"
+.include "libs/GSLib.inc"
 .include "libs/aplib-z80-fast.inc"
 
 
@@ -90,9 +90,11 @@ InitializeSMS:              ld sp, $DFF0                       ; set up stack po
                             ; == Initalise Scrolltable.
                             ; HL = Address of Scrolltable Data
                             ; DE = RAM Location to generate LUT for this Map (LUT used to speed metatile lookups).
+                            ; BC = Address of Metatile Data
                             ld hl, Scrolltable
                             ld de, $D000 
-                            call GSE_InitialiseMap
+                            ld bc, Metatiles
+                            call GSL_InitialiseMap
                             
                             
                             ; == Position Window at location (0,0) Top left most.
@@ -100,17 +102,17 @@ InitializeSMS:              ld sp, $DFF0                       ; set up stack po
                             ; DE = X
                             ld hl, 0
                             ld de, 0
-                            call GSE_PositionWindow
+                            call GSL_PositionWindow
                             
                             
                             ; == Update Screen Contents 
-                            ; Only needs to be called at beginning or when you modify position manually using GSE_PositionWindow.
-                            call GSE_RefreshScreen
+                            ; Only needs to be called at beginning or when you modify position manually using GSL_PositionWindow.
+                            call GSL_RefreshScreen
                             
                             
 --:                         ; **** Game Loop Begins!
                             ; == Call ActiveDisplayRoutine each frame after vblank has occurred (can be during vblank if afte vblank routine!)
-                            call GSE_ActiveDisplayRoutine
+                            call GSL_ActiveDisplayRoutine
                             
                              
                             ; == EXAMPLE OF METATILE LOOKUP
@@ -125,7 +127,7 @@ InitializeSMS:              ld sp, $DFF0                       ; set up stack po
                             ; @out HL: Address of Metatile in Scrolltable.
                             ld hl, 24
                             ld de, 24
-                            call GSE_MetatileLookup
+                            call GSL_MetatileLookup
                             
                             
                             ; == EXAMPLE OF TILE LOOKUP
@@ -136,7 +138,7 @@ InitializeSMS:              ld sp, $DFF0                       ; set up stack po
                             ; @out HL: Nametable Entry
                             ld hl, 24
                             ld de, 24
-                            call GSE_TileLookup
+                            call GSL_TileLookup
                             
                             
                             ; == Active Interrupt For Next Vblank (not related to scroll table).
@@ -154,13 +156,13 @@ InitializeSMS:              ld sp, $DFF0                       ; set up stack po
                             ; == VBLANK Interrupt has occoured!
 _vblankInterrupt:           di
 
-                            ; == Call GSE_VBlankRoutine every vblank.
-                            call GSE_VBlankRoutine
+                            ; == Call GSL_VBlankRoutine every vblank.
+                            call GSL_VBlankRoutine
                             
                             
                             ; *** BELOW IS SOME GENERIC CODE TO TAKE IN CONTROLER INPUT AND SCROLL SCREEN
                             ; When we want to scroll we write signed values to 
-                            ; GSE_YUpdateRequest and GSE_XUpdateRequest values -8 to 8.
+                            ; GSL_YUpdateRequest and GSL_XUpdateRequest values -8 to 8.
                             
                             ; == process user input
                             in a, ($dc)                         ; get joypad 1 input      
@@ -176,55 +178,55 @@ _joypad_test_b2:            ; == Test input for reset (button 2)
 _joypad_test_left1:         bit 2, d                            ; condition :: is left pressed?
                             jr nz, _joypad_test_right1                    
                             
-                                ld hl, (GSE_X)
+                                ld hl, (GSL_X)
                                 ld a, h
                                 or l
                                 jp z, _joypad_test_up1
                                 ld a, -8
-                                ld (GSE_XUpdateRequest), a      ; PUT -8 INTO GSE_XUpdateRequest for LEFT SCROLL
+                                ld (GSL_XUpdateRequest), a      ; PUT -8 INTO GSL_XUpdateRequest for LEFT SCROLL
                                 jp _joypad_test_up1
               
               
 _joypad_test_right1:        bit 3, d                            ; condition :: is right pressed?
                             jr nz, _joypad_test_up1
                                 
-                                ld hl, (GSE_X)
+                                ld hl, (GSL_X)
                                 ld bc, 256
                                 add hl, bc
-                                ld bc, (GSE_WidthInPixels)
+                                ld bc, (GSL_WidthInPixels)
                                 sbc hl, bc
                                 ld a, h
                                 or l
                                 jp z, _joypad_test_up1
                                 ld a, 8
-                                ld (GSE_XUpdateRequest), a      ; PUT 8 INTO GSE_XUpdateRequest for RIGHT SCROLL
+                                ld (GSL_XUpdateRequest), a      ; PUT 8 INTO GSL_XUpdateRequest for RIGHT SCROLL
                                     
                                     
 _joypad_test_up1:           bit 0, d                            ; condition :: is up pressed?
                             jr nz, _joypad_test_down1                    
                             
-                                ld hl, (GSE_Y)
+                                ld hl, (GSL_Y)
                                 ld a, h
                                 or l
                                 jp z, _joypad_test_end
                                 ld a, -8
-                                ld (GSE_YUpdateRequest), a      ; PUT -8 INTO GSE_YUpdateRequest for UP SCROLL
+                                ld (GSL_YUpdateRequest), a      ; PUT -8 INTO GSL_YUpdateRequest for UP SCROLL
                                 jp _joypad_test_end
                                 
                                 
 _joypad_test_down1:           bit 1, d                            ; condition :: is up pressed?
                               jr nz, _joypad_test_end                    
                                 
-                                ld hl, (GSE_Y)
+                                ld hl, (GSL_Y)
                                 ld bc, 192
                                 add hl, bc
-                                ld bc, (GSE_HeightInPixels)
+                                ld bc, (GSL_HeightInPixels)
                                 sbc hl, bc
                                 ld a, h
                                 or l
-                                jp z, _joypad_test_end              ; PUT 8 INTO GSE_YUpdateRequest for DOWN SCROLL
+                                jp z, _joypad_test_end              ; PUT 8 INTO GSL_YUpdateRequest for DOWN SCROLL
                                 ld a, 8
-                                ld (GSE_YUpdateRequest), a                    
+                                ld (GSL_YUpdateRequest), a                    
 
 
 _joypad_test_end:            

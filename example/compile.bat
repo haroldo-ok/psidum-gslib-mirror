@@ -18,11 +18,11 @@ echo [objects]>linkfile
 echo object.o>>linkfile
 
 rem Link
-"%WLAPATH%wlalink.exe" -drvs linkfile GSElibTest.sms
+"%WLAPATH%wlalink.exe" -drvs linkfile GSLibTest.sms
 
 rem Fixup for eSMS
-if exist GSElibTest.sms.sym del GSElibTest.sms.sym
-ren GSElibTest.sym GSElibTest.sms.sym
+if exist GSLibTest.sms.sym del GSLibTest.sms.sym
+ren GSLibTest.sym GSLibTest.sms.sym
 
 rem Cleanup to avoid mess
 if exist linkfile del linkfile

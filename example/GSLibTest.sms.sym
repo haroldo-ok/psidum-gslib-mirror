@@ -1,5 +1,5 @@
 ; this file was created with wlalink by ville helin <vhelin@iki.fi>.
-; no$gmb symbolic information for "GSElibTest.sms".
+; no$gmb symbolic information for "GSLibTest.sms".
 0000:0038 MI_InterruptHandler
 0000:0066 NMI_InterruptHandler
 0000:0b1d SetVDPAddress
