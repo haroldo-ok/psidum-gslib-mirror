@@ -90,8 +90,6 @@ GSL_InitialiseMap:          ; == Store GSL_MetatileLUTLoc
                             ld bc, 13
                             ldir
                             
-                            ld a, (GSL_MetatileTableLoc)
-                            
                             ; == Store GSL_ScrolltableLoc (ldir will have pushed past header to actual table)
                             ld (GSL_ScrolltableLoc), hl
 
