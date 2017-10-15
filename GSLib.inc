@@ -35,6 +35,7 @@
         GSL_HeightInPixels              dw          
         GSL_VerticalAddition            dw          ; addition value required to push scrolltable point to bottom left.
         GSL_OptionByte                  db
+        GSL_CollisionCount              db
         
         ; == Following is internal working ram
         GSL_ScrolltablePointer          dw
@@ -76,11 +77,20 @@ GSL_InitialiseMap:          ; == Store GSL_MetatileLUTLoc
                             
                             ; == Store MetatileTable Address
                             ld (GSL_MetatileTableLoc), bc
+                            
+                            ; == Store CollisionCount (3rd byte in metatile table)
+                            inc bc
+                            inc bc
+                            inc bc
+                            ld a, (bc)
+                            ld (GSL_CollisionCount), a
 
                             ; == Copy Scrolltable Header to Ram (its structure is identical to enum)
                             ld de, GSL_GENERAL_RAM + 4
                             ld bc, 13
                             ldir
+                            
+                            ld a, (GSL_MetatileTableLoc)
                             
                             ; == Store GSL_ScrolltableLoc (ldir will have pushed past header to actual table)
                             ld (GSL_ScrolltableLoc), hl
