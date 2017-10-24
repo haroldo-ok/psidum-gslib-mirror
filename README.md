@@ -25,7 +25,7 @@ In Your Code:
 
  * Include Library In Code.
  * Load tiles and palette to VDP.
- * Call GSL_InitaliseMap with (hl = Scrolltable Data, de = ram location for lookup table)
+ * Call GSL_InitaliseMap with (hl = Scrolltable Data, bc = Metatile Data)
  * Call GSL_PositionWindow with (hl = Y, de = X) 
  * Call GSL_RefreshScreen
  * Create Loop with calls to GSL_ActiveDisplayRoutine and GSL_VBlankRoutine.
