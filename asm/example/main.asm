@@ -44,7 +44,7 @@ banks 4
 .include "core/interupts.inc"
 .include "core/generic_routines.inc"
 .include "core/macros.inc"
-.include "libs/GSLib.inc"
+.include "libs/GSLib_1.0.inc"
 .include "libs/aplib-z80-fast.inc"
 
 
@@ -86,13 +86,19 @@ InitializeSMS:              ld sp, $DFF0                       ; set up stack po
                             WriteToVDP $4000, PhantasyStarTiles, PhantasyStarTilesEnd - PhantasyStarTiles
                             WriteToVDP $C000, PhantasyStarPalette, PhantasyStarPaletteEnd - PhantasyStarPalette
                             
+                            CopyToRAM $C000, Scrolltable, ScrolltableEnd - Scrolltable
+                            
+                            
+                            ex af, af'
+                            xor a
+                            ex af, af'
                             
                             ; == Initalise Scrolltable.
                             ; HL = Address of Scrolltable Data
                             ; DE = RAM Location to generate LUT for this Map (LUT used to speed metatile lookups).
                             ; BC = Address of Metatile Data
-                            ld hl, Scrolltable
-                            ld de, $D000 
+                            ld hl, $C000
+                            ;ld de, $D000 
                             ld bc, Metatiles
                             call GSL_InitialiseMap
                             
@@ -100,8 +106,8 @@ InitializeSMS:              ld sp, $DFF0                       ; set up stack po
                             ; == Position Window at location (0,0) Top left most.
                             ; HL = Y
                             ; DE = X
-                            ld hl, 0
-                            ld de, 0
+                            ld bc, 106
+                            ld hl, 106
                             call GSL_PositionWindow
                             
                             
@@ -125,22 +131,40 @@ InitializeSMS:              ld sp, $DFF0                       ; set up stack po
                             ; @in DE: X
                             ; @out A: Metatile ID
                             ; @out HL: Address of Metatile in Scrolltable.
-                            ld hl, 24
-                            ld de, 24
-                            call GSL_MetatileLookup
-                            
-                            
-                            ; == EXAMPLE OF TILE LOOKUP
-                            ; Just an example of use, we don't actually do anything with it.
-                            
-                            ; @in HL: Y
-                            ; @in DE: X
-                            ; @out HL: Nametable Entry
-                            ld hl, 24
-                            ld de, 24
-                            call GSL_TileLookup
-                            
-                            
+;                            ld bc, 128
+;                            ld hl, 96
+;                            call GSL_MetatileLookup
+;                            
+;                            ex af, af'
+;                            ld (hl), a
+;                            ex af, af'
+;                            
+;                            call GSL_MetatileUpdate
+;                            
+;                            
+;                            ld bc, 96
+;                            ld hl, 100
+;                            call GSL_MetatileLookup
+;                            
+;                            ex af, af'
+;                            ld (hl), a
+;                            inc a
+;                            ex af, af'
+;                            
+;                            call GSL_MetatileUpdate
+;                            
+;                            
+;                            ; == EXAMPLE OF TILE LOOKUP
+;                            ; Just an example of use, we don't actually do anything with it.
+;                            
+;                            ; @in HL: Y
+;                            ; @in DE: X
+;                            ; @out HL: Nametable Entry
+;                            ld hl, 24
+;                            ld de, 24
+;                            call GSL_TileLookup
+;                            
+;                            
                             ; == Active Interrupt For Next Vblank (not related to scroll table).
                             ld hl, _vblankInterrupt
                             push hl
@@ -182,7 +206,7 @@ _joypad_test_left1:         bit 2, d                            ; condition :: i
                                 ld a, h
                                 or l
                                 jp z, _joypad_test_up1
-                                ld a, -8
+                                ld a, -1
                                 ld (GSL_XUpdateRequest), a      ; PUT -8 INTO GSL_XUpdateRequest for LEFT SCROLL
                                 jp _joypad_test_up1
               
@@ -198,7 +222,7 @@ _joypad_test_right1:        bit 3, d                            ; condition :: i
                                 ld a, h
                                 or l
                                 jp z, _joypad_test_up1
-                                ld a, 8
+                                ld a, 1
                                 ld (GSL_XUpdateRequest), a      ; PUT 8 INTO GSL_XUpdateRequest for RIGHT SCROLL
                                     
                                     
@@ -209,7 +233,7 @@ _joypad_test_up1:           bit 0, d                            ; condition :: i
                                 ld a, h
                                 or l
                                 jp z, _joypad_test_end
-                                ld a, -8
+                                ld a, -1
                                 ld (GSL_YUpdateRequest), a      ; PUT -8 INTO GSL_YUpdateRequest for UP SCROLL
                                 jp _joypad_test_end
                                 
@@ -225,7 +249,7 @@ _joypad_test_down1:           bit 1, d                            ; condition ::
                                 ld a, h
                                 or l
                                 jp z, _joypad_test_end              ; PUT 8 INTO GSL_YUpdateRequest for DOWN SCROLL
-                                ld a, 8
+                                ld a, 1
                                 ld (GSL_YUpdateRequest), a                    
 
 
