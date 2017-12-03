@@ -21,7 +21,7 @@ Sets position of screen to (x,y) for initial use
 updates the entire screen for initial use or after a GSL_positionWindow() call.
 
 **unsigned int * GSL_metatileLookup(unsigned int x, unsigned int y)**
-eturns the metatile number located at position (x,y)
+returns pointer to the metatile located at position (x,y) in scrolltable.
 
 **void GSL_tileLookup(unsigned int x, unsigned int y)**
 Returns the nametable entry of the tile located at position (x,y)
@@ -83,6 +83,34 @@ Once you have started your game loop structure it like so.
 - Loop
 
 For a more details explanation please see the example code in c\example
+
+
+### Data Formats ###
+
+**Metatiles**
+
+Metatiles are stored as raw Nametable entries in order left to right, top to bottom for a total of 4 entries 
+(8 bytes). Metatile index 0 is used to contain meta information for the table and is not used. 
+
+Meta information for index 0 is as follows (in same order as file format)...
+- (2 bytes) Length of metatile table in bytes 
+- 6 unsed bits
+
+
+
+**Scrolltable Data**
+Scrolltable data is a representation of map using metatiles. Entries are stored as modified Metatile entries in
+order left to right, top to bottom. The modified metatile format is (metatile_id << 3) & 248) + ((metatile_id >> 5) & 7).
+
+Scrolltable contains a header before metatile entries. Header is 13 bytes long and is structured...
+
+ - (2 bytes) GSL_ScrolltableSize - size in bytes
+ - (2 bytes) GSL_WidthInMetatiles - width in metatile entries
+ - (2 bytes) GSL_HeightInMetatiles - height in metatile entries
+ - (2 bytes) GSL_WidthInPixels 
+ - (2 bytes) GSL_HeightInPixels
+ - (2 bytes) GSL_VerticalAddition - width in metatiles * 13
+ - (1 bytes) GSL_OptionByte (Lookups require generation of table, highest bit signals to generate table).
 
 ### Additional Notes ###
 

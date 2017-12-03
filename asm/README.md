@@ -13,7 +13,7 @@ A demonstration on the use of the library can be found in the asm\examples folde
 
 ### Documentation of Public Calls ###
 
-== GSE_InitaliseMap
+**GSE_InitaliseMap**
 @in hl: Scrolltable Location
 @in bc: MetatileTable Location
 
@@ -21,7 +21,7 @@ Initialises engine for passed scrolltable.
 
 
 
-== GSE_PositionWindow
+**GSE_PositionWindow**
 @in hl: Y
 @in bc: X
 
@@ -31,7 +31,7 @@ contents GSE_RefreshScreen needs to be called.
 
 
 
-== GSE_RefreshScreen
+**GSE_RefreshScreen**
 
 Updates the entire VDP nametable based on internal positioning. This routine is active display safe so it can be 
 used to load next stage while keeping interrupts active for say music routine. You will of course need to dim
@@ -39,7 +39,7 @@ the palette to avoid user seeing contents being written.
 
 
 
-== GSE_MetatileLookup
+**GSE_MetatileLookup**
 @in bc: Y
 @in hl: X
 @out hl: address of metatile entry in scrolltable (additionally result is kept in buffer)
@@ -60,7 +60,7 @@ update the last entry looked up by GSE_MetatileLookup. See Below.
 
 
 
-== GSE_TileLookup
+**GSE_TileLookup**
 @in bc: Y
 @in hl: X
 @out hl: Nametable Entry
@@ -69,7 +69,7 @@ Returns nametable entry for given x,y pixel coordinates.
 
 
 
-== GSE_MetatileUpdate
+**GSE_MetatileUpdate**
 
 Updates screen based on last GSE_MetatileLookup call. Results of last GSE_MetatileLookup call are internally
 buffered so no details need to be passed. 
@@ -80,7 +80,7 @@ creating garbage.
 
 
 
-== GSE_MetatileUpdateSpecific
+**GSE_MetatileUpdateSpecific**
 @in hl: Y
 @in de: X
 @in bc: Scrolltable offset referring to metatile entry needing update.
@@ -94,7 +94,7 @@ write your own tools sync changes against currently displayed screen contents.
 
 
 
-== GSE_ActiveDisplayRoutine
+**GSE_ActiveDisplayRoutine**
 
 Prepares screen scroll for given signed x,y pixel values. Values represent desired scroll in pixels. The 
 maximum range is -8 to 8. The values are not passed rather need to be written to ram values GSE_XUpdateRequest 
@@ -105,7 +105,7 @@ should be called whenever you desire scrolling.
 
 
 
-== GSE_VBlankRoutine
+**GSE_VBlankRoutine**
 
 Writes buffered row, column, metatile updates to screen. It is safe to call this routine every vblank even if
 no changes are required.
@@ -114,7 +114,7 @@ no changes are required.
 
 ### Data Formats ###
 
-== Metatiles
+**Metatiles**
 
 Metatiles are stored as raw Nametable entries in order left to right, top to bottom for a total of 4 entries 
 (8 bytes). Metatile index 0 is used to contain meta information for the table and is not used. 
@@ -125,11 +125,12 @@ Meta information for index 0 is as follows (in same order as file format)...
 
 
 
-== Scrolltable Data
+**Scrolltable Data**
 Scrolltable data is a representation of map using metatiles. Entries are stored as modified Metatile entries in
 order left to right, top to bottom. The modified metatile format is (metatile_id << 3) & 248) + ((metatile_id >> 5) & 7).
 
 Scrolltable contains a header before metatile entries. Header is 13 bytes long and is structured...
+
  - (2 bytes) GSL_ScrolltableSize - size in bytes
  - (2 bytes) GSL_WidthInMetatiles - width in metatile entries
  - (2 bytes) GSL_HeightInMetatiles - height in metatile entries
