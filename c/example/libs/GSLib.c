@@ -1,71 +1,266 @@
 
+#include "GSLib.h"
 
-/*
- * GSLib : Generic Scroll Engine by Psidum
- * 
- * General purpose 8 way scrolling engine for use in games or demos. 
- * Uses 16x16 pixel Metatiles.
- * 
- * Thanks to everyone in the Sega Master System dev community.
- * Special thanks to Calindro, Kagesan, Efry, Maxim, Sverx, Bock, vbt and all the rest!
- * 
- */
+#define GSL_GENERAL_RAM                 0xC000       ; location of general purpose ram
+#define GSL_HORIZONTAL_ADDITION         0x0F         ; addition value required to push scrolltable pointer to right size of screen 
+#define GSL_NAMETABLE_BASE_ADDRESS      0x7800       ; base address of nametable in vram including write bit set (14) 
+#define GSL_NAMETABLE_HIGH_BYTE_START   0x78
+#define GSL_NAMETABLE_HIGH_BYTE_END     0x7F  
+#define GSL_NAMETABLE_WIDTH_IN_BYTES    0x40
+#define VDP_CONTROL_PORT				0xBF
+#define VDP_DATA_PORT					0xBE
+
+// == RAM USAGE 
+// Following is stored in scrolltable header.
+#define GSL_ScrolltableSize             #_GSL_RAM + 0  // dw
+#define GSL_WidthInMetatiles            #_GSL_RAM + 2  // dw          
+#define GSL_HeightInMetatiles           #_GSL_RAM + 4  // dw
+#define GSL_WidthInPixels               #_GSL_RAM + 6  // dw
+#define GSL_HeightInPixels              #_GSL_RAM + 8  // dw          
+#define GSL_VerticalAddition            #_GSL_RAM + 10 // dw          ; addition value required to push scrolltable point to bottom left.
+#define GSL_OptionByte                  #_GSL_RAM + 12 // db
+
+// Following is internal working ram
+#define GSL_Scrolltable                 #_GSL_RAM + 13 // dw     
+#define GSL_ScrolltableCurrentPosition  #_GSL_RAM + 15 // dw          ; top-left position of current screen in scrolltable
+#define GSL_NametableCurrentPosition    #_GSL_RAM + 17 // dw          ; top-left position of current screen on vdp nametable
+#define GSL_MetatileTable               #_GSL_RAM + 19 // dw
+#define GSL_MetatileLookupBuffer        #_GSL_RAM + 21 // dw
+#define GSL_MetatileXBuffer             #_GSL_RAM + 23 // dw
+#define GSL_MetatileYBuffer             #_GSL_RAM + 25 // dw
+#define GSL_X                           #_GSL_RAM + 27 // dw          ; current x point in scrolltable
+#define GSL_Y                           #_GSL_RAM + 29 // dw          ; current y point in scroll table
+#define GSL_Y224                        #_GSL_RAM + 31 // db          ; stores Y%224. Needed to speed things up.
+#define GSL_YRefresh                    #_GSL_RAM + 32 // db          ; used in refresh window call for speed
+#define GSL_XUpdateRequest              #_GSL_RAM + 33 // db          ; requested x adjustment (signed)
+#define GSL_YUpdateRequest              #_GSL_RAM + 34 // db          ; requested y adjustment (signed)
+#define GSL_XUpdateStatus               #_GSL_RAM + 35 // db          ; represents required updates if any
+#define GSL_YUpdateStatus               #_GSL_RAM + 36 // db          ; ^^
+#define GSL_NametableUpdateColumn       #_GSL_RAM + 37 // dw          ; first entry in nametable for column update
+#define GSL_NametableUpdateRow          #_GSL_RAM + 39 // dw          ; first entry in nametable for row update
+#define GSL_MetatileUpdatesCount        #_GSL_RAM + 41 // db
+#define GSL_MetatileUpdatesAddress      #_GSL_RAM + 42 // dw
+#define GSL_CollisionCount              #_GSL_RAM + 44 // db
+#define GSL_Offset                      #_GSL_RAM + 45 //
+#define GSL_NATColumnBuffer             #_GSL_RAM + 47 // dsb 64
+#define GSL_NATRowBuffer                #_GSL_RAM + 111// dsb 72  
+#define GSL_MetatileUpdates             #_GSL_RAM + 183// dsb 80      ; you need 10 bytes per maximum update, default here is 80 = 8 update!
+
+// #GSL_VerticalAddition = *((unsigned int*)(&scrolltable + 5));
+unsigned char GSL_RAM[263];
+
+
+#pragma disable_warning 85 
+#pragma disable_warning 59
+
+void GSL_positionWindow(unsigned int X, unsigned int Y)
+{
+__asm
+							pop de
+							pop hl
+							pop bc
+							push bc
+							push hl
+							push de
+							
+							call GSL_PositionWindow
+
+__endasm;
+}							
+			
+
+			
+unsigned int * GSL_metatileLookup(unsigned int x, unsigned int y)
+{
+__asm
+							pop de
+							pop hl
+							pop bc
+							push bc
+							push hl
+							push de
+							
+							call GSL_MetatileLookup
+__endasm;
+}
 
 
 
-.section "GSLib" free
+void GSL_tileLookup(unsigned int x, unsigned int y)
+{
+__asm
 
-.define GSL_RAM                         $D800       ; location of general purpose ram
-.define GSL_HORIZONTAL_ADDITION         $0F         ; addition value required to push scrolltable pointer to right size of screen 
-.define GSL_NAMETABLE_BASE_ADDRESS      $7800       ; base address of nametable in vram including write bit set (14) 
-.define GSL_NAMETABLE_HIGH_BYTE_START   $78
-.define GSL_NAMETABLE_HIGH_BYTE_END     $7F  
-.define GSL_NAMETABLE_WIDTH_IN_BYTES    $40
-.define VDP_DATA_PORT                   $BE
-.define VDP_CONTROL_PORT                $BF    
+							pop de
+							pop hl
+							pop bc
+							push bc
+							push hl
+							push de
+							
+							call GSL_TileLookup
+__endasm;
+}
 
-        
+
+
+void GSL_refreshVDP()
+{
+__asm
+							push iy
+							call GSL_refreshVDP
+							pop iy
+__endasm;
+}
 
 
 
-            
-        
-; == Following is stored in scrolltable header.
-.define GSL_ScrolltableSize             GSL_RAM + 0  ; dw
-.define GSL_WidthInMetatiles            GSL_RAM + 2  ; dw          
-.define GSL_HeightInMetatiles           GSL_RAM + 4  ; dw
-.define GSL_WidthInPixels               GSL_RAM + 6  ; dw
-.define GSL_HeightInPixels              GSL_RAM + 8  ; dw          
-.define GSL_VerticalAddition            GSL_RAM + 10 ; dw          ; addition value required to push scrolltable point to bottom left.
-.define GSL_OptionByte                  GSL_RAM + 12 ; db
+void GSL_scroll(char x, char y)
+{
+__asm
+							pop bc
+							pop hl
+							push hl
+							push bc
+							
+							push iy
+							
+							ld a, h
+							ld (#GSL_YUpdateRequest), a
+							ld a, l
+							ld (#GSL_XUpdateRequest), a
+							
+							call GSL_ActiveDisplayRoutine
+							pop iy
+							
+__endasm;
+}
 
-; == Following is internal working ram
-.define GSL_Scrolltable                 GSL_RAM + 13 ; dw     
-.define GSL_ScrolltableCurrentPosition  GSL_RAM + 15 ; dw          ; top-left position of current screen in scrolltable
-.define GSL_NametableCurrentPosition    GSL_RAM + 17 ; dw          ; top-left position of current screen on vdp nametable
-.define GSL_MetatileTable               GSL_RAM + 19 ; dw
-.define GSL_MetatileLookupBuffer        GSL_RAM + 21 ; dw
-.define GSL_MetatileXBuffer             GSL_RAM + 23 ; dw
-.define GSL_MetatileYBuffer             GSL_RAM + 25 ; dw
-.define GSL_X                           GSL_RAM + 27 ; dw          ; current x point in scrolltable
-.define GSL_Y                           GSL_RAM + 29 ; dw          ; current y point in scroll table
-.define GSL_Y224                        GSL_RAM + 31 ; db          ; stores Y%224. Needed to speed things up.
-.define GSL_YRefresh                    GSL_RAM + 32 ; db          ; used in refresh window call for speed
-.define GSL_XUpdateRequest              GSL_RAM + 33 ; db          ; requested x adjustment (signed)
-.define GSL_YUpdateRequest              GSL_RAM + 34 ; db          ; requested y adjustment (signed)
-.define GSL_XUpdateStatus               GSL_RAM + 35 ; db          ; represents required updates if any
-.define GSL_YUpdateStatus               GSL_RAM + 36 ; db          ; ^^
-.define GSL_NametableUpdateColumn       GSL_RAM + 37 ; dw          ; first entry in nametable for column update
-.define GSL_NametableUpdateRow          GSL_RAM + 39 ; dw          ; first entry in nametable for row update
-.define GSL_MetatileUpdatesCount        GSL_RAM + 41 ; db
-.define GSL_MetatileUpdatesAddress      GSL_RAM + 42 ; dw
-.define GSL_CollisionCount              GSL_RAM + 44 ; db
-.define GSL_Offset                      GSL_RAM + 45 ; db
-.define GSL_NATColumnBuffer             GSL_RAM + 47 ; dsb 64
-.define GSL_NATRowBuffer                GSL_RAM + 111; dsb 72  
-.define GSL_MetatileUpdates             GSL_RAM + 183; dsb 80      ; you need 10 bytes per maximum update, default here is 80 = 8 update!
-                                        ; = 263 BYTE RAM USAGE
-      
+
+
+void GSL_VBlank()
+{
+__asm
+							push iy
+							call GSL_VBlankRoutine
+							pop iy
+__endasm;
+}
+
+
+
+void GSL_metatileUpdate()
+{
+__asm
+							call GSL_MetatileUpdate
+__endasm;
+}
+
+
+
+void GSL_metatileUpdateCustom(unsigned int x, unsigned int y, unsigned int offset)
+{
+__asm
+							pop bc
+							pop hl 
+							ld (#GSL_MetatileXBuffer), hl
+							pop hl
+							ld (#GSL_MetatileYBuffer), hl
+							pop hl
+							ld de, (#GSL_Scrolltable)
+							add hl, de
+							ld (#GSL_MetatileLookupBuffer), hl
+							push hl
+							push hl
+							push hl
+							push bc
+							
+							call GSL_MetatileUpdate
+__endasm;	
+}
+
+
+unsigned int GSL_getMapWidthInPixels()
+{
+	return *((unsigned int*)(&GSL_RAM + 6));
+}
+
+
+
+unsigned int GSL_getMapHeightInPixels()
+{
+	return *((unsigned int*)(&GSL_RAM + 8));
+}
+
+
+
+unsigned int GSL_getMapWidthInMetatiles()
+{
+	return *((unsigned int*)(&GSL_RAM + 2));
+}
+
+
+
+unsigned int GSL_getMapHeightInMetatiles()
+{
+	return *((unsigned int*)(&GSL_RAM + 4));
+}
+
+
+
+unsigned int GSL_getScrolltableSize()
+{
+	return *((unsigned int*)(&GSL_RAM + 0));
+}
+
+
+
+unsigned int GSL_getCurrentX()
+{
+	return *((unsigned int*)(&GSL_RAM + 27));
+}
+
+
+
+unsigned int GSL_getCurrentY()
+{
+	return *((unsigned int*)(&GSL_RAM + 29));
+}
+
+
+
+unsigned char GSL_getCollisionCount()
+{
+	return *((unsigned char*)(&GSL_RAM + 44));
+}
+
+
+unsigned char * GSL_getScrolltableAddress()
+{
+	return *(unsigned char**)(&GSL_RAM + 13);
+}
+
+
+
+void GSL_initializeMap(void *scrolltable, void *metatiles)
+{
+
+__asm						pop de
+							pop hl
+							pop bc
+							push bc
+							push hl
+							push de
+							
+							call GSL_InitialiseMap
+							
+							jp _Finalise
+							
+							
+							
+							
+							
+; ===============================================================================
+; GSLib 1.0 ASM
 
 /*
  * == Initializes GSLlib for rendering of new map
@@ -73,30 +268,30 @@
  * @in bc: Metatile Location
  */
 GSL_InitialiseMap:          ; == Store MetatileTable Address
-                            ld (GSL_MetatileTable), bc
+                            ld (#GSL_MetatileTable), bc
                             
                             ; == Store CollisionCount (3rd byte in metatile table)
                             inc bc
                             inc bc
                             inc bc
                             ld a, (bc)
-                            ld (GSL_CollisionCount), a
+                            ld (#GSL_CollisionCount), a
 
                             ; == Copy Scrolltable Header to Ram
-                            ld de, GSL_RAM
-                            ld bc, 13
+                            ld de, #_GSL_RAM
+                            ld bc, #13
                             ldir
                             
-                            ; == Store GSL_Scrolltable (ldir will have pushed past header to actual table)
-                            ld (GSL_Scrolltable), hl
+                            ; == Store #GSL_Scrolltable (ldir will have pushed past header to actual table)
+                            ld (#GSL_Scrolltable), hl
                             
                             ; == Initialize Ram
-                            ld hl, GSL_MetatileUpdates
-                            ld (GSL_MetatileUpdatesAddress), hl
+                            ld hl, #GSL_MetatileUpdates
+                            ld (#GSL_MetatileUpdatesAddress), hl
                             xor a
-                            ld (GSL_MetatileUpdatesCount), a
-                            ld (GSL_XUpdateRequest), a
-                            ld (GSL_YUpdateRequest), a
+                            ld (#GSL_MetatileUpdatesCount), a
+                            ld (#GSL_XUpdateRequest), a
+                            ld (#GSL_YUpdateRequest), a
 
                             ret
                             
@@ -111,22 +306,22 @@ GSL_InitialiseMap:          ; == Store MetatileTable Address
  * @in bc: Y 
  */                                
 GSL_PositionWindow:         ; == Store (x, y) in ram
-                            ld (GSL_Y), bc
-                            ld (GSL_X), hl
+                            ld (#GSL_Y), bc
+                            ld (#GSL_X), hl
                             
                             
-                            ; **** Calculate and Store GSL_ScrolltableCurrentPosition
+                            ; **** Calculate and Store #GSL_ScrolltableCurrentPosition
                             call GSL_MetatileLookup
                             
-                            ; == Store GSL_ScrolltableCurrentPosition
-                            ld (GSL_ScrolltableCurrentPosition), hl
+                            ; == Store #GSL_ScrolltableCurrentPosition
+                            ld (#GSL_ScrolltableCurrentPosition), hl
                             
                             
-                            ; *** Calculate and Store GSL_Y224
+                            ; *** Calculate and Store #GSL_Y224
                             ; == Y Modulo 224 (height of window in pixels)
-                            ld hl, (GSL_Y)
-                            ld e, 224                
-                            ld b, 8
+                            ld hl, (#GSL_Y)
+                            ld e, #224                
+                            ld b, #8
 _DivLoop:                   adc hl, hl
                             ld a, h
                             jr c, _DivCarry1
@@ -140,14 +335,14 @@ _DivCarry2:                 djnz _DivLoop
                             rla
                             cpl
                             
-                            ; == Store GSL_Y224
+                            ; == Store #GSL_Y224
                             ld a, h
-                            ld (GSL_Y224), a
+                            ld (#GSL_Y224), a
                             
                             
-                            ; *** Calculate and Store GSL_NametableCurrentPosition (top left nametable entry on VDP)
+                            ; *** Calculate and Store #GSL_NametableCurrentPosition (top left nametable entry on VDP)
                             ; == Use Previous Modulo to Calculate Namtable Row Address ((modulo & %11110000) * 4)
-                            ld a, 248
+                            ld a, #248
                             and h
                             ld l, a
                             xor a
@@ -159,32 +354,32 @@ _DivCarry2:                 djnz _DivLoop
                             
                             ; == Add X worth of nametable entries.
                             ; Divide by 8 then << 1 (below is optimization of this)
-                            ld a, (GSL_X)
-                            and 248 ; %11111000
+                            ld a, (#GSL_X)
+                            and #248 ; %11111000
                             rra
                             rra
                             ld e, a
                             add hl, de
                             
                             ; == Add vdp base address of nametable 
-                            ld de, GSL_NAMETABLE_BASE_ADDRESS       
+                            ld de, #GSL_NAMETABLE_BASE_ADDRESS       
                             add hl, de
                             
-                            ; == Store GSL_NametableCurrentPosition
+                            ; == Store #GSL_NametableCurrentPosition
                             inc hl
                             inc hl
-                            ld (GSL_NametableCurrentPosition), hl   
+                            ld (#GSL_NametableCurrentPosition), hl   
                             
                             ; == Set VDP Fine Scroll Values
-                            ld a, (GSL_X)
-                            out (VDP_CONTROL_PORT), a
-                            ld a, 136 ; $88
-                            out (VDP_CONTROL_PORT), a
+                            ld a, (#GSL_X)
+                            out (#VDP_CONTROL_PORT), a
+                            ld a, #136 ; $88
+                            out (#VDP_CONTROL_PORT), a
                             
-                            ld a, (GSL_Y224)
-                            out (VDP_CONTROL_PORT), a
-                            ld a, 137 ; $89
-                            out (VDP_CONTROL_PORT), a
+                            ld a, (#GSL_Y224)
+                            out (#VDP_CONTROL_PORT), a
+                            ld a, #137 ; $89
+                            out (#VDP_CONTROL_PORT), a
                             
                             ret
                             
@@ -192,7 +387,7 @@ _DivCarry2:                 djnz _DivLoop
                             
 /* == Retreives from Scrolltable, Metatile ID and address
  * 
- * - Stores address in buffer GSL_MetatileLookupBuffer.
+ * - Stores address in buffer #GSL_MetatileLookupBuffer.
  * - Requires GSL_MetatileLUT to have been created.
  * - GSL_MetatileLUT has Scrolltable base address baked in so no need do add this!
  * 
@@ -203,8 +398,8 @@ _DivCarry2:                 djnz _DivLoop
  * 
  */                            
 GSL_MetatileLookup:         ; == Convert Y to LUT Entry and retrieve value
-                            ld (GSL_MetatileXBuffer), hl
-                            ld (GSL_MetatileYBuffer), bc
+                            ld (#GSL_MetatileXBuffer), hl
+                            ld (#GSL_MetatileYBuffer), bc
                             
                             ; == Divide Y by 16 to get Metatile Y Index
                             ld a, c
@@ -219,10 +414,10 @@ GSL_MetatileLookup:         ; == Convert Y to LUT Entry and retrieve value
                             ld c, a
                             
                             ; == Multiply Metatile Y Index By Map Metatile Width
-                            ld de, (GSL_WidthInMetatiles)
-                            ld hl, 0
+                            ld de, (#GSL_WidthInMetatiles)
+                            ld hl, #0
                             ld a, b
-                            ld b, 16
+                            ld b, #16
                             
 _Mult16Loop:                add hl, hl
                             sla c
@@ -232,7 +427,7 @@ _Mult16Loop:                add hl, hl
 _Mult16NoAdd:               djnz _Mult16Loop
                           
                             ; == Divide X by 16 to get Metatile X Index and add
-                            ld de, (GSL_MetatileXBuffer)
+                            ld de, (#GSL_MetatileXBuffer)
                             ld a, e
                             srl d
                             rra
@@ -245,12 +440,12 @@ _Mult16NoAdd:               djnz _Mult16Loop
                             ld e, a
                             add hl, de
                             
-                            ; == Add GSL_MetatileTable Base Address
-                            ld de, (GSL_Scrolltable)
+                            ; == Add #GSL_MetatileTable Base Address
+                            ld de, (#GSL_Scrolltable)
                             add hl, de
                             
                             ; == Put Metatile ID in a and store address in buffer.
-                            ld (GSL_MetatileLookupBuffer), hl
+                            ld (#GSL_MetatileLookupBuffer), hl
                             
                             ret        
                             
@@ -259,23 +454,23 @@ _Mult16NoAdd:               djnz _Mult16Loop
                                                         
 /* == Retreives from Scrolltable, Nametable Entry
  * 
- * - Stores address of surrounding metatile in buffer GSL_MetatileLookupBuffer.
+ * - Stores address of surrounding metatile in buffer #GSL_MetatileLookupBuffer.
  * - Requires GSL_MetatileLUT to have been created.
  * - GSL_MetatileLUT has Scrolltable base address baked in so no need do add this!
  * 
  *
- * @in bc: Y
  * @in hl: X
+ * @in bc: Y
  * 
  * @out hl: Nametable entry
  */                      
 GSL_TileLookup:             ; == Create offset for within Metatile (which nametable entry does x,y point to)
-                            ld a, 8 ; %00001000
+                            ld a, #8 ; %00001000
                             and l
                             rra
                             rra
                             ld d, a
-                            ld a, 8 ; %00001000
+                            ld a, #8 ; %00001000
                             and c
                             rra
                             or d
@@ -287,15 +482,15 @@ GSL_TileLookup:             ; == Create offset for within Metatile (which nameta
                             ; == Resolve in to Metatile Address - ((ld << 3) + Offset + GSL_METATILE_TABLE)
                             ld a, (hl)
                             ld l, a                            
-                            and 7 ; %111                          
+                            and #7 ; %111                          
                             ld h, a
                             ld a, l
-                            and 248 ; %11111000
+                            and #248 ; %11111000
                             ld l, a
                             pop af
                             or l     
                             ld l, a                             ; hl = pointer to metatile nametable entry we need to write to vdp
-                            ld de, (GSL_MetatileTable)
+                            ld de, (#GSL_MetatileTable)
                             add hl, de
                             
                             ; == Get Nametable entry using resolved address
@@ -316,35 +511,35 @@ GSL_TileLookup:             ; == Create offset for within Metatile (which nameta
  * TODO:
  * - Optimizations are possible.
  */                             
-GSL_RefreshScreen:          ; == Set VDP Nametable Pointer
-                            ld hl, (GSL_NametableCurrentPosition)
-                            ld (GSL_NametableUpdateRow), hl
+GSL_refreshVDP:          	; == Set VDP Nametable Pointer
+                            ld hl, (#GSL_NametableCurrentPosition)
+                            ld (#GSL_NametableUpdateRow), hl
 
                             
                             ; == Keep a Modified Y to reflect rows being updated
-                            ld hl, (GSL_Y)
-                            ld (GSL_YRefresh), hl ; using this as temp ram entry
+                            ld hl, (#GSL_Y)
+                            ld (#GSL_YRefresh), hl ; using this as temp ram entry
                             
-                            ld a, (GSL_Y224)
+                            ld a, (#GSL_Y224)
                             srl a
                             srl a
                             srl a
-                            sub 28
-                            ld (GSL_NATColumnBuffer), a
+                            sub #28
+                            ld (#GSL_NATColumnBuffer), a
                             
-                            ld a, 28
-                            ld (GSL_NATColumnBuffer + 1), a
+                            ld a, #28
+                            ld (#GSL_NATColumnBuffer + 1), a
                             
                             
 _RefreshLoop:               ; == Set VDP Pointer at Start of Row
-                            ld hl, (GSL_NametableUpdateRow)
-                            ld c, VDP_CONTROL_PORT
+                            ld hl, (#GSL_NametableUpdateRow)
+                            ld c, #VDP_CONTROL_PORT
                             out (c), l
                             out (c), h
                             
                             ; == Lookup Metatile for this Row
-                            ld bc, (GSL_YRefresh)
-                            ld hl, (GSL_X)
+                            ld bc, (#GSL_YRefresh)
+                            ld hl, (#GSL_X)
                             call GSL_MetatileLookup
                             
                             ; == Store address in iy
@@ -352,58 +547,58 @@ _RefreshLoop:               ; == Set VDP Pointer at Start of Row
                             pop iy
                             
                             ; == Put Y Offset in to ixl and Unroll a row of Nametable data.
-                            ld a, (GSL_YRefresh)
-                            and 8 ; %00001000
+                            ld a, (#GSL_YRefresh)
+                            and #8 ; %00001000
                             rrca
-                            ld (GSL_Offset), a
+                            ld (#GSL_Offset), a
                             call _unrollRowForNTUpdate          ; Unroll buffer table column for nametable updates!
-                            
-                            ; == Add Offset to Start location in Buffer.
-                            ld a, (GSL_X)
+
+							; == Add Offset to Start location in Buffer.
+                            ld a, (#GSL_X)
                             rrca
                             rrca
-                            and 2
-                            add a, 2
-                            ld hl, GSL_NATRowBuffer
+                            and #2
+                            add a, #2
+                            ld hl, #GSL_NATRowBuffer
                             ld e, a
                             xor a
                             ld d, a
                             add hl, de
                             
                             ; == Calculate Number of Bytes to be Written in first Write, store in b.
-                            ld a, (GSL_X)
-                            add a, 8
-                            and 248 ; %11111000
+                            ld a, (#GSL_X)
+                            add a, #8
+                            and #248 ; %11111000
                             rrca
                             rrca
                             ld d, a
-                            ld a, 64
+                            ld a, #64
                             sub d
-                            and 63 ; %00111111
+                            and #63 ; %00111111
                             ld d, a
                             
                             ; == Write Buffered Data to VDP Nametable
-                            ld c, VDP_DATA_PORT
+                            ld c, #VDP_DATA_PORT
 _WriteRow1Loop:             outi
                             dec d
                             jp nz, _WriteRow1Loop
                             
                             ; == Set VDP Address to Start of Row for Second Write
-                            ld de, (GSL_NametableUpdateRow)
-                            ld c, VDP_CONTROL_PORT
-                            ld a, 192 ; %11000000
+                            ld de, (#GSL_NametableUpdateRow)
+                            ld c, #VDP_CONTROL_PORT
+                            ld a, #192 ; %11000000
                             and e
                             out (c), a
                             out (c), d
                             
                             ; == Calculate Number of Bytes to be Written in scond Write, store in b.
-                            ld a, (GSL_X)
-                            add a, 8
-                            and 248 ; %11111000
+                            ld a, (#GSL_X)
+                            add a, #8
+                            and #248 ; %11111000
                             rrca
                             rrca
                             ld d, a
-                            ld c, VDP_DATA_PORT
+                            ld c, #VDP_DATA_PORT
                             
                             ; == Write Buffered Data to VDP Nametable
 _WriteRow2Loop:             outi
@@ -412,37 +607,37 @@ _WriteRow2Loop:             outi
                             
                             ; **** Prep for Next Write.
                             ; == Push VDP Nametable address to next Row.
-                            ld hl, (GSL_NametableUpdateRow)
-                            ld de, GSL_NAMETABLE_WIDTH_IN_BYTES
+                            ld hl, (#GSL_NametableUpdateRow)
+                            ld de, #GSL_NAMETABLE_WIDTH_IN_BYTES
                             add hl, de
-                            ld (GSL_NametableUpdateRow), hl
+                            ld (#GSL_NametableUpdateRow), hl
                             
                             
                             ; == Have we written rows? Return if true;
-                            ld a, (GSL_NATColumnBuffer + 1)
+                            ld a, (#GSL_NATColumnBuffer + 1)
                             dec a
                             ret z
-                            ld (GSL_NATColumnBuffer + 1), a
+                            ld (#GSL_NATColumnBuffer + 1), a
                             
                             ; == Is next row at top of VDP Nametable, reset Address if true;
-                            ld a, (GSL_NATColumnBuffer)
+                            ld a, (#GSL_NATColumnBuffer)
                             inc a
-                            ld (GSL_NATColumnBuffer), a
+                            ld (#GSL_NATColumnBuffer), a
                             jp nz, _AdjustTempYValue
-                            ld hl, (GSL_NametableUpdateRow)
-                            ld h, GSL_NAMETABLE_HIGH_BYTE_START
-                            ld a, 63 ; %00111111
+                            ld hl, (#GSL_NametableUpdateRow)
+                            ld h, #GSL_NAMETABLE_HIGH_BYTE_START
+                            ld a, #63 ; %00111111
                             and l
                             ld l, a
-                            ld (GSL_NametableUpdateRow), hl
+                            ld (#GSL_NametableUpdateRow), hl
                             
                             
                             ; == Adjust Temp Y Value for Next Write.
-_AdjustTempYValue:          ld hl, (GSL_YRefresh)
-                            ld d, 0
-                            ld e, 8
+_AdjustTempYValue:          ld hl, (#GSL_YRefresh)
+                            ld d, #0
+                            ld e, #8
                             add hl, de
-                            ld (GSL_YRefresh), hl
+                            ld (#GSL_YRefresh), hl
                             
                             jp _RefreshLoop
 
@@ -461,13 +656,13 @@ _AdjustTempYValue:          ld hl, (GSL_YRefresh)
 */
  
 GSL_MetatileUpdateSpecific: ; == Populate Buffered Values with Custom Values.
-                            ld (GSL_MetatileYBuffer), hl
-                            ld (GSL_MetatileXBuffer), de
+                            ld (#GSL_MetatileYBuffer), hl
+                            ld (#GSL_MetatileXBuffer), de
                             
                             ; == Add Array offset to Scrolltable bass address then store results.
-                            ld hl, (GSL_Scrolltable)
+                            ld hl, (#GSL_Scrolltable)
                             add hl, bc
-                            ld (GSL_MetatileLookupBuffer), hl
+                            ld (#GSL_MetatileLookupBuffer), hl
                             
                             ; == Flow to GSL_MetatileUpdate Below 
                             
@@ -487,9 +682,9 @@ GSL_MetatileUpdateSpecific: ; == Populate Buffered Values with Custom Values.
  * last looked up entry.
  */                          
 GSL_MetatileUpdate:         ; == Identify Column of update
-                            ld hl, (GSL_MetatileYBuffer)
-                            ld e, 224                
-                            ld b, 8
+                            ld hl, (#GSL_MetatileYBuffer)
+                            ld e, #224                
+                            ld b, #8
 _MDivLoop:                  adc hl, hl
                             ld a, h
                             jr c, _MDivCarry1
@@ -508,8 +703,8 @@ _MDivCarry2:                djnz _MDivLoop
                             rra
                             rra
                             rra
-                            and 15
-                            add a, 240
+                            and #15
+                            add a, #240
                             ld h, a
                             xor a
                             ld l, a
@@ -518,8 +713,8 @@ _MDivCarry2:                djnz _MDivLoop
                             rr l
                             
                             ; == Isolate metatile location in X and add
-                            ld a, (GSL_MetatileXBuffer)
-                            and 240 ; %11110000
+                            ld a, (#GSL_MetatileXBuffer)
+                            and #240 ; %11110000
                             rra
                             rra
                             ld e, a
@@ -527,7 +722,7 @@ _MDivCarry2:                djnz _MDivLoop
                             
                             ; == Write Resolved Address of Metatile on VDP (including register high bits)
                             ex de, hl
-                            ld hl, (GSL_MetatileUpdatesAddress)
+                            ld hl, (#GSL_MetatileUpdatesAddress)
                             ld (hl), e
                             inc hl
                             ld (hl), d
@@ -535,16 +730,16 @@ _MDivCarry2:                djnz _MDivLoop
                             ex de, hl
                             
                             ; == Resolve Metatile Location from ID
-                            ld hl, (GSL_MetatileLookupBuffer)
+                            ld hl, (#GSL_MetatileLookupBuffer)
                             ld l, (hl)
                             ld a, l
-                            and 7 ; %111                          
-                            ;or GSL_METATILE_TABLE_HIGH_BYTE     ; add high bits of metatile address (table must be on 2k boundary)
+                            and #7 ; %111                          
+                            ;or #GSL_METATILE_TABLE_HIGH_BYTE     ; add high bits of metatile address (table must be on 2k boundary)
                             ld h, a
                             ld a, l
-                            and 248 ; %11111000
+                            and #248 ; %11111000
                             ld l, a   
-                            ld bc, (GSL_MetatileTable)
+                            ld bc, (#GSL_MetatileTable)
                             add hl, bc
                             
                             ; == Copy Contents of Metatile To Ram Buffer
@@ -558,8 +753,8 @@ _MDivCarry2:                djnz _MDivLoop
                             ldi
                             
                             ; == Update Count and Address for more Metatile Updates if any 
-                            ld (GSL_MetatileUpdatesAddress), de
-                            ld hl, GSL_MetatileUpdatesCount
+                            ld (#GSL_MetatileUpdatesAddress), de
+                            ld hl, #GSL_MetatileUpdatesCount
                             inc (hl)
                             
                             ret
@@ -577,21 +772,21 @@ _MDivCarry2:                djnz _MDivLoop
  * @in iy: scrolltable pointer pointing to first metatile in update
  * 
  */  
-_unrollRowForNTUpdate:      ld de, GSL_NATRowBuffer         
-                            ld c, 17*4   
+_unrollRowForNTUpdate:      ld de, #GSL_NATRowBuffer         
+                            ld c, #17*#4   
                             
-_unrollMetaTileRow:         ld l, (iy+0)                        ; == Resolve metatile address, current metatile pointed to by iy
+_unrollMetaTileRow:         ld l, 0 (iy)                        ; == Resolve metatile address, current metatile pointed to by iy
                             ld a, l                             ; optimized <<3 shift, bits are stored as '43210765' for speed
-                            and 7 ; %111                          
+                            and #7 ; %111                          
                             ld h, a
                             ld a, l
-                            and 248 ; %11111000
+                            and #248 ; %11111000
                             ld l, a
-                            ld a, (GSL_Offset)                 ; add X offset (in ixl) to get desired column in meta tile.
+                            ld a, (#GSL_Offset)                 ; add X offset (in ixl) to get desired column in meta tile.
                             or l       
                             ld l, a                             ; hl = pointer to metatile nametable entry we need to write to vdp
                             push bc
-                            ld bc, (GSL_MetatileTable)
+                            ld bc, (#GSL_MetatileTable)
                             add hl, bc
                             pop bc
                             
@@ -621,21 +816,21 @@ _unrollMetaTileRow:         ld l, (iy+0)                        ; == Resolve met
  * @in iy: scrolltable pointer pointing to first metatile in update
  * @in ixl: X offset, needed to identify which column in metatile to extract.
  */                   
-_unrollColumnForNTUpdate:   ld de, GSL_NATColumnBuffer         
-                            ld c, 15*4   
+_unrollColumnForNTUpdate:   ld de, #GSL_NATColumnBuffer         
+                            ld c, #15*#4   
                             
-_unrollMetaTileColumn:      ld l, (iy+0)                        ; == Resolve metatile address, current metatile pointed to by iy
+_unrollMetaTileColumn:      ld l, 0 (iy)                      ; == Resolve metatile address, current metatile pointed to by iy
                             ld a, l                             ; optimized <<3 shift, bits are stored as '43210765' for speed
-                            and 7 ; %111                            
+                            and #7 ; %111                            
                             ld h, a
                             ld a, l
-                            and 248 ; %11111000
+                            and #248 ; %11111000
                             ld l, a
-                            ld a, (GSL_Offset)                 
+                            ld a, (#GSL_Offset)                 
                             or l                                
                             ld l, a                             ; hl = pointer to metatile nametable entry we need to write to vdp
                             push bc
-                            ld bc, (GSL_MetatileTable)
+                            ld bc, (#GSL_MetatileTable)
                             add hl, bc
                             pop bc
                             
@@ -650,7 +845,7 @@ _unrollMetaTileColumn:      ld l, (iy+0)                        ; == Resolve met
                             or c
                             ret z
                             
-                            ld hl, (GSL_WidthInMetatiles)       ; Update Scrolltable Pointer
+                            ld hl, (#GSL_WidthInMetatiles)       ; Update Scrolltable Pointer
                             ex de, hl
                             add iy, de
                             ex de, hl
@@ -669,21 +864,21 @@ _unrollMetaTileColumn:      ld l, (iy+0)                        ; == Resolve met
  * NOTES: Somewhat Optimized.
  */                              
 GSL_ActiveDisplayRoutine:   ; == Initialize
-                            ld iy, GSL_RAM
+                            ld iy, #_GSL_RAM
                             xor a
-                            ld (GSL_XUpdateStatus), a
-                            ld (GSL_YUpdateStatus), a
+                            ld (#GSL_XUpdateStatus), a
+                            ld (#GSL_YUpdateStatus), a
                             
                             
 _xScroll:                   ; == Check Left / Right Scroll... 
-                            ld a, (GSL_XUpdateRequest)              
+                            ld a, (#GSL_XUpdateRequest)              
                             and a                               
                             jp z, _yScroll                      ; no value = no horizontal scroll
                             jp m, _leftScroll                   ; signed = left scroll.
                                   
                                      
 _rightScroll:               ; == Update currentXScroll Value.
-                            ld hl, (GSL_X)                      ; add to current x value
+                            ld hl, (#GSL_X)                      ; add to current x value
                             ld b, l
                             add a, l
                             jr nc, _noRightHighByteCarry
@@ -691,43 +886,43 @@ _rightScroll:               ; == Update currentXScroll Value.
 _noRightHighByteCarry:      ld l, a
                             xor b
                             ld d, a                             ; store low byte different pre / post scroll (for boundary tests)
-                            ld (GSL_X), hl      
+                            ld (#GSL_X), hl      
                                    
 
 _rightNametableCheck:       ; == Check for NameTable Boundary Cross
-                            and 248 ; %11111000
+                            and #248 ; %11111000
                             jp z, _yScroll
                             
                             ; == NameTable Bounary Crossed... Process
-                            ld a, 1
-                            ld (GSL_XUpdateStatus), a
+                            ld a, #1
+                            ld (#GSL_XUpdateStatus), a
                             
-                            ld a, (GSL_NametableCurrentPosition)            ; Update NameTable Pointer
+                            ld a, (#GSL_NametableCurrentPosition)            ; Update NameTable Pointer
                             ld c, a                             ; (addition bound within low 6 bits!!!)
-                            and 192 ; %11000000                       
+                            and #192 ; %11000000                       
                             ld b, a
                             ld a, c
-                            add a, 2
-                            and 63 ; %111111
+                            add a, #2
+                            and #63 ; %111111
                             or b
-                            ld (GSL_NametableCurrentPosition), a
+                            ld (#GSL_NametableCurrentPosition), a
 
 
 _rightScrolltableCheck:     ; == Check for BufferTable Boundary Cross
                             ld a, d                                 
-                            and 240 ; %11110000                    
+                            and #240 ; %11110000                    
                             jp z, _yScroll
                             
                             ; == BufferTable Boundary Crossed... Process
-                            ld hl, (GSL_ScrolltableCurrentPosition)          ;  Update buffer table pointer.
+                            ld hl, (#GSL_ScrolltableCurrentPosition)          ;  Update buffer table pointer.
                             inc hl
-                            ld (GSL_ScrolltableCurrentPosition), hl
+                            ld (#GSL_ScrolltableCurrentPosition), hl
 
                             jp _yScroll
 
                                                     
 _leftScroll:                ; == Update currentXScroll Value.
-                            ld hl, (GSL_X)                      ; add to current x value
+                            ld hl, (#GSL_X)                      ; add to current x value
                             ld b, l
                             add a, l
                             jr c, _noLeftHighByteCarry
@@ -735,40 +930,40 @@ _leftScroll:                ; == Update currentXScroll Value.
 _noLeftHighByteCarry:       ld l, a
                             xor b
                             ld d, a                             ; store low byte different pre / post scroll (for boundary tests)
-                            ld (GSL_X), hl             
+                            ld (#GSL_X), hl             
                             
 _leftNametableCheck:        ; == Check for NameTable Boundary Cross
-                            and 248 ; %11111000
+                            and #248 ; %11111000
                             jp z, _yScroll
                             
                             ; == NameTable Bounary Crossed... Process
-                            ld a, 129
-                            ld (GSL_XUpdateStatus), a
+                            ld a, #129
+                            ld (#GSL_XUpdateStatus), a
                             
-                            ld a, (GSL_NametableCurrentPosition)        ; Update name table pointer.
+                            ld a, (#GSL_NametableCurrentPosition)        ; Update name table pointer.
                             ld c, a                             ; (subtraction bound within low 6 bits!!!)
-                            and 192 ; %11000000                       
+                            and #192 ; %11000000                       
                             ld b, a
                             ld a, c
-                            sub 2
-                            and 63 ; %111111
+                            sub #2
+                            and #63 ; %111111
                             or b
-                            ld (GSL_NametableCurrentPosition), a
+                            ld (#GSL_NametableCurrentPosition), a
                             
                             
 _leftScrolltableCheck:      ; == Check for BufferTable Boundary Cross
                             ld a, d                                 
-                            and 240 ; %11110000                       
+                            and #240 ; %11110000                       
                             jp z, _yScroll
                             
                             ; == BufferTable Boundary Crossed... Process
-                            ld hl, (GSL_ScrolltableCurrentPosition)          ;  Update buffer table pointer.
+                            ld hl, (#GSL_ScrolltableCurrentPosition)          ;  Update buffer table pointer.
                             dec hl
-                            ld (GSL_ScrolltableCurrentPosition), hl
+                            ld (#GSL_ScrolltableCurrentPosition), hl
                                 
 
 _yScroll:                   ; == Check Up / Down Scroll... 
-                            ld a, (GSL_YUpdateRequest)
+                            ld a, (#GSL_YUpdateRequest)
                             and a                           
                             jp z, _processUpdateBuffers          ; no value = no vertical scroll
                             jp m, _upScroll                     ; signed = left scroll.
@@ -776,16 +971,16 @@ _yScroll:                   ; == Check Up / Down Scroll...
 
 _downScroll:                ; == Update dummyYScroll Value (wraps around 224 NameTable height!)
                             ld b, a
-                            ld a, (GSL_Y224)
+                            ld a, (#GSL_Y224)
                             add a, b
-                            cp 224
+                            cp #224
                             jp c, _downNoCrossBoundary
-                            sub 224
-_downNoCrossBoundary:       ld (GSL_Y224), a
+                            sub #224
+_downNoCrossBoundary:       ld (#GSL_Y224), a
                             ld a, b
                             
                             ; == Update currentYScroll Value.
-                            ld hl, (GSL_Y)             ; add to current y value
+                            ld hl, (#GSL_Y)             ; add to current y value
                             ld b, l
                             add a, l
                             jr nc, _noDownHighByteCarry
@@ -793,52 +988,52 @@ _downNoCrossBoundary:       ld (GSL_Y224), a
 _noDownHighByteCarry:       ld l, a
                             xor b
                             ld d, a                             ; store low byte different pre / post scroll (for boundary tests)
-                            ld (GSL_Y), hl             
+                            ld (#GSL_Y), hl             
                             
                             
 _downNametableCheck:        ; == Check for NameTable Boundary Cross
-                            and 248 ; %11111000
+                            and #248 ; %11111000
                             jp z, _processUpdateBuffers 
                             
                             ; == NameTable Bounary Crossed... Process
-                            ld a, 1
-                            ld (GSL_YUpdateStatus), a
+                            ld a, #1
+                            ld (#GSL_YUpdateStatus), a
                                                 
-                            ld hl, (GSL_NametableCurrentPosition)                  ; Update name table pointer.
-                            ld bc, 64                           
+                            ld hl, (#GSL_NametableCurrentPosition)                  ; Update name table pointer.
+                            ld bc, #64                           
                             add hl, bc
-                            ld a, GSL_NAMETABLE_HIGH_BYTE_END                                      ; TODO shift this to .defines for variable nat positioning
+                            ld a, #GSL_NAMETABLE_HIGH_BYTE_END                                      ; TODO shift this to .defines for variable nat positioning
                             cp h
                             jp nz, _downNoResetNTHighByte
-                            ld h, GSL_NAMETABLE_HIGH_BYTE_START
-_downNoResetNTHighByte:     ld (GSL_NametableCurrentPosition), hl
+                            ld h, #GSL_NAMETABLE_HIGH_BYTE_START
+_downNoResetNTHighByte:     ld (#GSL_NametableCurrentPosition), hl
 
 _downScrolltableCheck:      ; == Check for BufferTable Boundary Cross
                             ld a, d                                 
-                            and 240 ; %11110000                       ; !SMC metatile width bitmask
+                            and #240 ; %11110000                       ; !SMC metatile width bitmask
                             jp z, _processUpdateBuffers
                             
                             ; == BufferTable Boundary Crossed... Process
                             
-                            ld hl, (GSL_ScrolltableCurrentPosition)
-                            ld bc, (GSL_WidthInMetatiles)
+                            ld hl, (#GSL_ScrolltableCurrentPosition)
+                            ld bc, (#GSL_WidthInMetatiles)
                             add hl, bc
-                            ld (GSL_ScrolltableCurrentPosition), hl
+                            ld (#GSL_ScrolltableCurrentPosition), hl
 
                             jp _processUpdateBuffers
                             
                             
 _upScroll:                  ; == Update dummyYScroll Value (wraps around 224 NameTable height!)
                             ld b, a
-                            ld a, (GSL_Y224)
+                            ld a, (#GSL_Y224)
                             add a, b
                             jp c, _upNoCrossBoundary
-                            sub 32
-_upNoCrossBoundary:         ld (GSL_Y224), a
+                            sub #32
+_upNoCrossBoundary:         ld (#GSL_Y224), a
                             ld a, b
                             
                             ; == Update currentYScroll Value.
-                            ld hl, (GSL_Y)             ; add to current y value
+                            ld hl, (#GSL_Y)             ; add to current y value
                             ld b, l
                             add a, l
                             jr c, _noUpHighByteCarry
@@ -846,76 +1041,76 @@ _upNoCrossBoundary:         ld (GSL_Y224), a
 _noUpHighByteCarry:         ld l, a
                             xor b
                             ld d, a                             ; store low byte different pre / post scroll (for boundary tests)
-                            ld (GSL_Y), hl             
+                            ld (#GSL_Y), hl             
                             
 _upNametableCheck:          ; == Check for NameTable Boundary Cross
                             ld a, d
-                            and 248 ; %11111000
+                            and #248 ; %11111000
                             jp z, _processUpdateBuffers
 
                             ; == NameTable Bounary Crossed... Process
-                            ld a, 129
-                            ld (GSL_YUpdateStatus), a
+                            ld a, #129
+                            ld (#GSL_YUpdateStatus), a
                             
-                            ld hl, (GSL_NametableCurrentPosition)                  ; Update name table pointer.
-                            ld bc, 64
+                            ld hl, (#GSL_NametableCurrentPosition)                  ; Update name table pointer.
+                            ld bc, #64
                             or a
                             sbc hl, bc
-                            ld a, GSL_NAMETABLE_HIGH_BYTE_START - 1
+                            ld a, #GSL_NAMETABLE_HIGH_BYTE_START - 1
                             cp h
                             jp nz, _upNoResetNTHighByte
-                            ld h, GSL_NAMETABLE_HIGH_BYTE_END - 1
-_upNoResetNTHighByte:       ld (GSL_NametableCurrentPosition), hl
+                            ld h, #GSL_NAMETABLE_HIGH_BYTE_END - 1
+_upNoResetNTHighByte:       ld (#GSL_NametableCurrentPosition), hl
 
 _upScrolltableCheck:        ; == Check for BufferTable Boundary Cross
                             ld a, d                                 
-                            and 240 ; %11110000                       ; !SMC metatile width bitmask
+                            and #240 ; %11110000                       ; !SMC metatile width bitmask
                             jp z, _processUpdateBuffers
                             
                             ; == BufferTable Boundary Crossed... Process
                             
-                            ld hl, (GSL_ScrolltableCurrentPosition)
-                            ld bc, (GSL_WidthInMetatiles)
+                            ld hl, (#GSL_ScrolltableCurrentPosition)
+                            ld bc, (#GSL_WidthInMetatiles)
                             xor a
                             sbc hl, bc
-                            ld (GSL_ScrolltableCurrentPosition), hl
+                            ld (#GSL_ScrolltableCurrentPosition), hl
 
                             
 _processUpdateBuffers:       
 _updateX:                   ; == Left / Right Scroll Occur?
-                            ld a, (GSL_XUpdateStatus)
+                            ld a, (#GSL_XUpdateStatus)
                             or a
                             jp z, _updateY
                             jp m, _updateBufferLeft
                             
 _updateBufferRight:               ; == Create Adjusted btPointer for _unrollColumnForNTUpdate call
-                            ld iy, (GSL_ScrolltableCurrentPosition)
-                            ld de, 16
+                            ld iy, (#GSL_ScrolltableCurrentPosition)
+                            ld de, #16
                             add iy, de
 
                             ; == Create X offset for _unrollColumnForNTUpdate call
-                            ld a, (GSL_X)                    ; get x offset for meta tile. Writing column so need to adjust for this.
-                            and 8 ; %00001000
+                            ld a, (#GSL_X)                    ; get x offset for meta tile. Writing column so need to adjust for this.
+                            and #8 ; %00001000
                             rrca
                             rrca
-                            ld (GSL_Offset), a    ;ld ixl, a
+                            ld (#GSL_Offset), a    ;ld ixl, a
                             
                             
                             ; == Unroll MetaTiles and get NameTable data for update
                             call _unrollColumnForNTUpdate   
                             
                             ; == Store Adjusted NameTable Address for Update.
-                            ld a, (GSL_NametableCurrentPosition)
+                            ld a, (#GSL_NametableCurrentPosition)
                             ld c, a
-                            and 192 ; %11000000                       ; update name table pointer.
+                            and #192 ; %11000000                       ; update name table pointer.
                             ld b, a
                             ld a, c
-                            sub 2
-                            and 63 ; %111111
+                            sub #2
+                            and #63 ; %111111
                             or b
-                            ld (GSL_NametableUpdateColumn), a
-                            ld a, (GSL_NametableCurrentPosition + 1)
-                            ld (GSL_NametableUpdateColumn+ 1), a    
+                            ld (#GSL_NametableUpdateColumn), a
+                            ld a, (#GSL_NametableCurrentPosition + 1)
+                            ld (#GSL_NametableUpdateColumn+ 1), a    
                             
                             jp _updateY
                             
@@ -925,28 +1120,28 @@ _updateBufferLeft:          ; == NameTable Update Required?
                             jp nc, _updateY
                             
                             ; == Create Adjusted btPointer for _unrollColumnForNTUpdate call
-                            ld iy, (GSL_ScrolltableCurrentPosition)
-                            ld a, (GSL_X) 
-                            add a, 8
-                            and 8 ; %00001000
+                            ld iy, (#GSL_ScrolltableCurrentPosition)
+                            ld a, (#GSL_X) 
+                            add a, #8
+                            and #8 ; %00001000
                             jp nz, _createXOffset
                             inc iy
                             
                             ; == Create X offset for _unrollColumnForNTUpdate call
 _createXOffset:             rrca
                             rrca
-                            ld (GSL_Offset), a    ;ld ixl, a
+                            ld (#GSL_Offset), a    ;ld ixl, a
 
                             ; == Unroll MetaTiles and get NameTable data for update                        
                             call _unrollColumnForNTUpdate
                                  
                             ; == Store NameTable Address for Update (no adjustment required)
-                            ld hl, (GSL_NametableCurrentPosition)
-                            ld (GSL_NametableUpdateColumn), hl
+                            ld hl, (#GSL_NametableCurrentPosition)
+                            ld (#GSL_NametableUpdateColumn), hl
 
                            
 _updateY:                   ; == Left / Right Scroll Occur?
-                            ld a, (GSL_YUpdateStatus)
+                            ld a, (#GSL_YUpdateStatus)
                             or a
                             ret z
                             jp m, _updateBufferUp
@@ -958,34 +1153,34 @@ _updateBufferDown:          ; == NameTable Update Required?
                             ret nc
 
                             ; == Create Adjusted btPointer for _unrollColumnForNTUpdate call
-                            ld iy, (GSL_ScrolltableCurrentPosition)
-                            ld de, (GSL_VerticalAddition)
+                            ld iy, (#GSL_ScrolltableCurrentPosition)
+                            ld de, (#GSL_VerticalAddition)
                             add iy, de
                             
-                            ld de, (GSL_WidthInMetatiles)
-                            ld a, (GSL_Y)              ; get x offset for meta tile. Writing column so need to adjust for this.
-                            sub 8
-                            and 8 ; %00001000
+                            ld de, (#GSL_WidthInMetatiles)
+                            ld a, (#GSL_Y)              ; get x offset for meta tile. Writing column so need to adjust for this.
+                            sub #8
+                            and #8 ; %00001000
                             jp nz, _createYOffset
                             add iy, de
                             
 _createYOffset:             rrca
-                            ld (GSL_Offset), a    ;ld ixl, a
+                            ld (#GSL_Offset), a    ;ld ixl, a
                                         
                             ; == Unroll MetaTiles and get NameTable data for update                             
                             call _unrollRowForNTUpdate          
                             
                             
                             ; == Store Adjusted NameTable Address for Update.
-                            ld hl, (GSL_NametableCurrentPosition)
-                            ld de, 64
+                            ld hl, (#GSL_NametableCurrentPosition)
+                            ld de, #64
                             or a
                             sbc hl, de
-                            ld a, GSL_NAMETABLE_HIGH_BYTE_START - 1
+                            ld a, #GSL_NAMETABLE_HIGH_BYTE_START - 1
                             cp h
                             jp nz, _noYNametableWrap
-                            ld h, GSL_NAMETABLE_HIGH_BYTE_END - 1
-_noYNametableWrap:          ld (GSL_NametableUpdateRow), hl
+                            ld h, #GSL_NAMETABLE_HIGH_BYTE_END - 1
+_noYNametableWrap:          ld (#GSL_NametableUpdateRow), hl
                             
                             ret
 
@@ -994,18 +1189,18 @@ _updateBufferUp:            ; == NameTable Update Required?
                             ret nc
                             
                             ; == Get btPointer for _unrollColumnForNTUpdate call
-                            ld iy, (GSL_ScrolltableCurrentPosition)
+                            ld iy, (#GSL_ScrolltableCurrentPosition)
                             
                             ; == Create Y offset for _unrollColumnForNTUpdate call
-                            ld a, (GSL_Y)              ; get x offset for meta tile. Writing column so need to adjust for this.
-                            and 8 ; %00001000
+                            ld a, (#GSL_Y)              ; get x offset for meta tile. Writing column so need to adjust for this.
+                            and #8 ; %00001000
                             rrca
-                            ld (GSL_Offset), a    ;ld ixl, a
+                            ld (#GSL_Offset), a    ;ld ixl, a
                             call _unrollRowForNTUpdate          ; Unroll buffer table column for nametable updates!
                             
                             ; == Store NameTable Address for Update (no adjustment required)
-                            ld hl, (GSL_NametableCurrentPosition)
-                            ld (GSL_NametableUpdateRow), hl
+                            ld hl, (#GSL_NametableCurrentPosition)
+                            ld (#GSL_NametableUpdateRow), hl
                             
                             ret
                             
@@ -1017,25 +1212,25 @@ _updateBufferUp:            ; == NameTable Update Required?
  * - Not Active Display Safe!
  */                             
 GSL_VBlankRoutine:          ; == Check if row update required.
-                            ld a, (GSL_YUpdateStatus)
+                            ld a, (#GSL_YUpdateStatus)
                             and a
                             jp z, _updateColumn
                             
 _writeRow:                  ; == Put VDP Pointer Address in Shadow Register and Set VDP Pointer.
                             exx
-                            ld hl, (GSL_NametableUpdateRow)                  
-                            ld c, VDP_CONTROL_PORT
+                            ld hl, (#GSL_NametableUpdateRow)                  
+                            ld c, #VDP_CONTROL_PORT
                             out (c), l
                             out (c), h
                             exx
-                            ld c, VDP_DATA_PORT
+                            ld c, #VDP_DATA_PORT
 
                             ; == Construct LUT address For First Write
-                            ld a, (GSL_X)              
-                            and 248 ; %11111000
+                            ld a, (#GSL_X)              
+                            and #248 ; %11111000
                             rrca
                             rrca
-                            ld hl, GSL_LUTRowUpdate
+                            ld hl, #_GSL_LUTRowUpdate
                             add a, l
                             jp nc, _finaliseLUTRowAddress
                             inc h
@@ -1048,16 +1243,16 @@ _finaliseLUTRowAddress:     ld l, a
                             ld e, (hl)                          
                             inc hl
                             ld d, (hl)
-                            ld iy, _UnrolledRowWrites
+                            ld iy, #_UnrolledRowWrites
                             add iy, de
 
                             ; == Add Offset to Start location in Buffer.
-                            ld a, (GSL_X)
+                            ld a, (#GSL_X)
                             rrca
                             rrca
-                            and 2
-                            add a, 2
-                            ld hl, GSL_NATRowBuffer
+                            and #2
+                            add a, #2
+                            ld hl, #GSL_NATRowBuffer
                             ld e, a
                             xor a
                             ld d, a
@@ -1069,7 +1264,7 @@ _finaliseLUTRowAddress:     ld l, a
                             ; Second write always starts at left most side of Nametable so clear
                             ; low bytes of address and update.
                             exx
-                            ld a, 192 ; %11000000
+                            ld a, #192 ; %11000000
                             and l
                             out (c), a
                             out (c), h
@@ -1078,7 +1273,7 @@ _finaliseLUTRowAddress:     ld l, a
                             ; == Move Forward 130 bytes in LUT
                             ex de, hl
                             pop hl
-                            ld a, 64
+                            ld a, #64
                             add a, l
                             ld l, a
                             jp nc, _rowExtractJumpAddress
@@ -1089,31 +1284,31 @@ _rowExtractJumpAddress:     ; == Extract Jump Location from LUT and store in IY
                             ld c, (hl)                          
                             inc hl
                             ld b, (hl)
-                            ld iy, _UnrolledRowWrites
+                            ld iy, #_UnrolledRowWrites
                             add iy, bc
                             ex de, hl
-                            ld c, VDP_DATA_PORT
+                            ld c, #VDP_DATA_PORT
                             call IYJump
                             
 _updateColumn:              ; == Check if row update required.
-                            ld a, (GSL_XUpdateStatus)
+                            ld a, (#GSL_XUpdateStatus)
                             and a
                             jp z, _MetatileUpdates
                             
                             ; == Put VDP Pointer Address in Shadow Register and Set VDP Pointer.
                             exx
-                            ld hl, (GSL_NametableUpdateColumn)            
-                            ld de, 64                           ; Each new column entry is 64 bytes ahead, store here for addition
-                            ld c, VDP_CONTROL_PORT
+                            ld hl, (#GSL_NametableUpdateColumn)            
+                            ld de, #64                           ; Each new column entry is 64 bytes ahead, store here for addition
+                            ld c, #VDP_CONTROL_PORT
                             exx
-                            ld c, VDP_DATA_PORT
+                            ld c, #VDP_DATA_PORT
                             
                             ; == Construct LUT address For First Write
-                            ld a, (GSL_Y224)
-                            and 248 ; %11111000
+                            ld a, (#GSL_Y224)
+                            and #248 ; %11111000
                             rrca
                             rrca
-                            ld hl, GSL_LUTColumnUpdate
+                            ld hl, #_GSL_LUTColumnUpdate
                             add a, l
                             jp nc, _finaliseLUTColumnAddress
                             inc h
@@ -1125,15 +1320,15 @@ _finaliseLUTColumnAddress:  ld l, a
                             ld e, (hl)                          
                             inc hl
                             ld d, (hl)
-                            ld iy, _UnrolledColumnWrites
+                            ld iy, #_UnrolledColumnWrites
                             add iy, de
                             
                             ; == Add Offset to Start location in Buffer.
-                            ld a, (GSL_Y)
-                            and 8 ; %00001000
+                            ld a, (#GSL_Y)
+                            and #8 ; %00001000
                             rrca
                             rrca
-                            ld hl, GSL_NATColumnBuffer
+                            ld hl, #GSL_NATColumnBuffer
                             ld e, a
                             xor a
                             ld d, a
@@ -1145,16 +1340,16 @@ _finaliseLUTColumnAddress:  ld l, a
                             ; Second write always starts at top row of Nametable so reset high byte 
                             ; to GSL_NAMETABLE_HIGH_BYTE_START, keep low bytes of address and update.
                             exx
-                            ld a, (GSL_NametableUpdateColumn)                  ; Get vram nametable pointer
-                            and 63 ; %00111111
-                            ld h, GSL_NAMETABLE_HIGH_BYTE_START
+                            ld a, (#GSL_NametableUpdateColumn)                  ; Get vram nametable pointer
+                            and #63 ; %00111111
+                            ld h, #GSL_NAMETABLE_HIGH_BYTE_START
                             ld l, a
                             exx
 
                             ; == Move Forward 114 bytes in LUT
                             ex de, hl
                             pop hl
-                            ld a, 56
+                            ld a, #56
                             add a, l
                             ld l, a
                             jp nc, _columnExtractJumpAddress
@@ -1165,22 +1360,22 @@ _columnExtractJumpAddress:  ; == Extract Jump Location from LUT and store in IY
                             ld c, (hl)                          
                             inc hl
                             ld b, (hl)
-                            ld iy, _UnrolledColumnWrites
+                            ld iy, #_UnrolledColumnWrites
                             add iy, bc
                             ex de, hl
-                            ld c, VDP_DATA_PORT
+                            ld c, #VDP_DATA_PORT
                             call IYJump
                             
 _MetatileUpdates:            ; == Check if Metatile Updates are Required.
-                            ld a, (GSL_MetatileUpdatesCount)
+                            ld a, (#GSL_MetatileUpdatesCount)
                             or a
                             jp z, _VBlankCleanup
                             
-                            ld hl, GSL_MetatileUpdates
+                            ld hl, #GSL_MetatileUpdates
                             ld b, a
                             
 _MetatileUpdatesLoop:       ; == Process each metatile Update
-                            ld a, 7                 ; count = number of metatile to update.
+                            ld a, #7                 ; count = number of metatile to update.
                             add a, b                ; add 7 to current number, outi will reduce this by 8
                             ld b, a                 ; end result will be to subtract 1 from current number 
                             
@@ -1189,7 +1384,7 @@ _MetatileUpdatesLoop:       ; == Process each metatile Update
                             inc hl
                             ld e, (hl)
                             inc hl
-                            ld c, VDP_CONTROL_PORT
+                            ld c, #VDP_CONTROL_PORT
                             out (c), d
                             out (c), e
                             
@@ -1201,7 +1396,7 @@ _MetatileUpdatesLoop:       ; == Process each metatile Update
                             outi
                             
                             ; == Update VDP pointer to be one nametable row lower.
-                            ld a, 64 ; $40
+                            ld a, #64 ; $40
                             add a, d
                             ld d, a
                             inc c
@@ -1222,25 +1417,25 @@ _MetatileUpdatesLoop:       ; == Process each metatile Update
                             
                             
 _VBlankCleanup:             ; == Reset RAM Variables for next Active Display.
-                            ld hl, GSL_MetatileUpdates
-                            ld (GSL_MetatileUpdatesAddress), hl
+                            ld hl, #GSL_MetatileUpdates
+                            ld (#GSL_MetatileUpdatesAddress), hl
                             
                             xor a
-                            ld (GSL_MetatileUpdatesCount), a
-                            ld (GSL_XUpdateRequest), a
-                            ld (GSL_YUpdateRequest), a
+                            ld (#GSL_MetatileUpdatesCount), a
+                            ld (#GSL_XUpdateRequest), a
+                            ld (#GSL_YUpdateRequest), a
                             
                             ; == Update Screen X,Y Scroll
-                            ld a, (GSL_X)
+                            ld a, (#GSL_X)
                             neg
-                            out (VDP_CONTROL_PORT), a
-                            ld a, 136 ; $88
-                            out (VDP_CONTROL_PORT), a
+                            out (#VDP_CONTROL_PORT), a
+                            ld a, #136 ; $88
+                            out (#VDP_CONTROL_PORT), a
                             
-                            ld a, (GSL_Y224)
-                            out (VDP_CONTROL_PORT), a
-                            ld a, 137 ; $89
-                            out (VDP_CONTROL_PORT), a 
+                            ld a, (#GSL_Y224)
+                            out (#VDP_CONTROL_PORT), a
+                            ld a, #137 ; $89
+                            out (#VDP_CONTROL_PORT), a 
                             
                             ret
                             
@@ -1521,18 +1716,28 @@ _UnrolledRowWrites:         ret
                             exx
                             outi
                             outi
-_UnrolledColumnWrites:      ret                        
-                            
-GSL_LUTRowUpdate:
-.dw $FF84 $FF88 $FF8C $FF90 $FF94 $FF98 $FF9C $FFA0 $FFA4 $FFA8 $FFAC $FFB0 $FFB4 $FFB8 $FFBC $FFC0 
-.dw $FFC4 $FFC8 $FFCC $FFD0 $FFD4 $FFD8 $FFDC $FFE0 $FFE4 $FFE8 $FFEC $FFF0 $FFF4 $FFF8 $FFFC $0000 
-.dw $FFFC $FFF8 $FFF4 $FFF0 $FFEC $FFE8 $FFE4 $FFE0 $FFDC $FFD8 $FFD4 $FFD0 $FFCC $FFC8 $FFC4 $FFC0 
-.dw $FFBC $FFB8 $FFB4 $FFB0 $FFAC $FFA8 $FFA4 $FFA0 $FF9C $FF98 $FF94 $FF90 $FF8C $FF88 $FF84 $FF80 
+_UnrolledColumnWrites:      ret    
 
-GSL_LUTColumnUpdate:
-.dw $FECC $FED7 $FEE2 $FEED $FEF8 $FF03 $FF0E $FF19 $FF24 $FF2F $FF3A $FF45 $FF50 $FF5B $FF66 $FF71 
-.dw $FF7C $FF87 $FF92 $FF9D $FFA8 $FFB3 $FFBE $FFC9 $FFD4 $FFDF $FFEA $FFF5 $0000 $FFF5 $FFEA $FFDF 
-.dw $FFD4 $FFC9 $FFBE $FFB3 $FFA8 $FF9D $FF92 $FF87 $FF7C $FF71 $FF66 $FF5B $FF50 $FF45 $FF3A $FF2F 
-.dw $FF24 $FF19 $FF0E $FF03 $FEF8 $FEED $FEE2 $FED7 
 
-.ends
+_Finalise:					
+
+__endasm;
+}
+
+
+
+const unsigned int GSL_LUTColumnUpdate[] = 
+{
+	0xFECC, 0xFED7, 0xFEE2, 0xFEED, 0xFEF8, 0xFF03, 0xFF0E, 0xFF19, 0xFF24, 0xFF2F, 0xFF3A, 0xFF45, 0xFF50, 0xFF5B, 0xFF66, 0xFF71, 
+	0xFF7C, 0xFF87, 0xFF92, 0xFF9D, 0xFFA8, 0xFFB3, 0xFFBE, 0xFFC9, 0xFFD4, 0xFFDF, 0xFFEA, 0xFFF5, 0x0000, 0xFFF5, 0xFFEA, 0xFFDF, 
+	0xFFD4, 0xFFC9, 0xFFBE, 0xFFB3, 0xFFA8, 0xFF9D, 0xFF92, 0xFF87, 0xFF7C, 0xFF71, 0xFF66, 0xFF5B, 0xFF50, 0xFF45, 0xFF3A, 0xFF2F, 
+	0xFF24, 0xFF19, 0xFF0E, 0xFF03, 0xFEF8, 0xFEED, 0xFEE2, 0xFED7
+};
+
+const unsigned int GSL_LUTRowUpdate[] = 
+{
+	0xFF84, 0xFF88, 0xFF8C, 0xFF90, 0xFF94, 0xFF98, 0xFF9C, 0xFFA0, 0xFFA4, 0xFFA8, 0xFFAC, 0xFFB0, 0xFFB4, 0xFFB8, 0xFFBC, 0xFFC0, 
+	0xFFC4, 0xFFC8, 0xFFCC, 0xFFD0, 0xFFD4, 0xFFD8, 0xFFDC, 0xFFE0, 0xFFE4, 0xFFE8, 0xFFEC, 0xFFF0, 0xFFF4, 0xFFF8, 0xFFFC, 0x0000, 
+	0xFFFC, 0xFFF8, 0xFFF4, 0xFFF0, 0xFFEC, 0xFFE8, 0xFFE4, 0xFFE0, 0xFFDC, 0xFFD8, 0xFFD4, 0xFFD0, 0xFFCC, 0xFFC8, 0xFFC4, 0xFFC0, 
+	0xFFBC, 0xFFB8, 0xFFB4, 0xFFB0, 0xFFAC, 0xFFA8, 0xFFA4, 0xFFA0, 0xFF9C, 0xFF98, 0xFF94, 0xFF90, 0xFF8C, 0xFF88, 0xFF84, 0xFF80
+};
