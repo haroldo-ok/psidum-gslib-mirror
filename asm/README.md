@@ -120,8 +120,8 @@ Metatiles are stored as raw Nametable entries in order left to right, top to bot
 (8 bytes). Metatile index 0 is used to contain meta information for the table and is not used. 
 
 Meta information for index 0 is as follows (in same order as file format)...
-- (2 bytes) Length of metatile table in bytes 
-- 6 unsed bits
+ - (2 bytes) Length of metatile table in bytes 
+ - (6 bytes) unused
 
 
 
@@ -138,10 +138,6 @@ Scrolltable contains a header before metatile entries. Header is 13 bytes long a
  - (2 bytes) GSL_HeightInPixels
  - (2 bytes) GSL_VerticalAddition - width in metatiles * 13
  - (1 bytes) GSL_OptionByte (Lookups require generation of table, highest bit signals to generate table).
-
-
-
-
 
 ### Additional Notes ###
 

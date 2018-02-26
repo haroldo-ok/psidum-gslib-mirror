@@ -93,8 +93,8 @@ Metatiles are stored as raw Nametable entries in order left to right, top to bot
 (8 bytes). Metatile index 0 is used to contain meta information for the table and is not used. 
 
 Meta information for index 0 is as follows (in same order as file format)...
-- (2 bytes) Length of metatile table in bytes 
-- 6 unsed bits
+ - (2 bytes) Length of metatile table in bytes 
+ - (6 bytes) unused
 
 
 
